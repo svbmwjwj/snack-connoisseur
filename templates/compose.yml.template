@@ -1,0 +1,16 @@
+services:
+  xray:
+    image: ghcr.io/xtls/xray-core:26.3.27
+    container_name: xray
+    restart: unless-stopped
+    ports:
+      - "443:40443/tcp"
+      - "443:40443/udp" 
+    command: run -c /usr/local/etc/xray/config.json
+    volumes:
+      - ./conf:/usr/local/etc/xray:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

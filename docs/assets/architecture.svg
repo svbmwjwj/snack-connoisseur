@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 580" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #FFFFFF; }
+      .title { font-family: 'Georgia', serif; font-size: 24px; font-weight: bold; fill: #09090B; text-anchor: middle; }
+      .subtitle { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; fill: #52525B; text-anchor: middle; }
+      .layer-label { font-family: system-ui, -apple-system, sans-serif; font-size: 10px; font-weight: bold; fill: #71717A; letter-spacing: 1.5px; text-anchor: middle; }
+      
+      .box-card { fill: #FFFFFF; stroke: #18181B; stroke-width: 1.5; rx: 6px; ry: 6px; }
+      .box-inner { fill: #FAFAFA; stroke: #E4E4E7; stroke-width: 1; rx: 4px; ry: 4px; }
+      
+      .box-title { font-family: 'Georgia', serif; font-size: 15px; font-weight: bold; fill: #09090B; }
+      .box-tag { font-family: system-ui, -apple-system, sans-serif; font-size: 10px; font-weight: 700; fill: #71717A; letter-spacing: 0.5px; }
+      .box-desc { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; fill: #3F3F46; line-height: 1.5; }
+      
+      .arrow { stroke: #18181B; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+      .arrow-dash { stroke: #71717A; stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; marker-end: url(#arrowhead-gray); }
+      
+      .arrow-label { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; fill: #27272A; text-anchor: middle; font-weight: 500; }
+      .arrow-label-dash { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; font-weight: 600; fill: #52525B; text-anchor: middle; }
+    </style>
+    
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#18181B"/>
+    </marker>
+    <marker id="arrowhead-gray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#71717A"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="580" class="bg"/>
+
+  <!-- Title Header -->
+  <text x="600" y="45" class="title">Snack Connoisseur Architecture &amp; Auto-Healing Matrix</text>
+  <text x="600" y="70" class="subtitle">Zero-Secret Node Orchestration · Cloud-Triggered SNI Scanning · 7x24 Cascade Self-Healing Loop</text>
+
+  <!-- ==================== 1. Local CLI Controller ==================== -->
+  <rect x="40" y="110" width="280" height="420" class="box-card"/>
+  <text x="60" y="140" class="box-title">Local CLI (cnsr.sh)</text>
+  <text x="60" y="162" class="box-tag">LOCAL CONTROLLER</text>
+  
+  <rect x="55" y="180" width="250" height="75" class="box-inner"/>
+  <text x="65" y="202" class="box-desc" font-weight="bold">Command Dispatcher</text>
+  <text x="65" y="222" class="box-desc">• init / check / update / test</text>
+  <text x="65" y="240" class="box-desc">• rotate-ip / rotate-dns / rotate-xray</text>
+
+  <rect x="55" y="270" width="250" height="75" class="box-inner"/>
+  <text x="65" y="292" class="box-desc" font-weight="bold">Zero-Secret Sanitizer</text>
+  <text x="65" y="312" class="box-desc">• Strips AWS / Cloudflare Keys</text>
+  <text x="65" y="330" class="box-desc">• Secure SSH BatchMode Provisioning</text>
+
+  <rect x="55" y="360" width="250" height="75" class="box-inner"/>
+  <text x="65" y="382" class="box-desc" font-weight="bold">Simulation &amp; Dry-Run Suite</text>
+  <text x="65" y="402" class="box-desc">• --dry-run (Read-only evaluation)</text>
+  <text x="65" y="420" class="box-desc">• 5 Mock Fault Injection Scenarios</text>
+
+  <rect x="55" y="450" width="250" height="65" class="box-inner"/>
+  <text x="65" y="472" class="box-desc" font-weight="bold">AWS Static IP Rotator</text>
+  <text x="65" y="492" class="box-desc">• Auto rebinds Elastic IP on TCP Block</text>
+
+  <!-- ==================== 2. Zero-Secret Gateway ==================== -->
+  <rect x="420" y="110" width="340" height="180" class="box-card"/>
+  <text x="440" y="140" class="box-title">Cloudflare Gateway (Worker)</text>
+  <text x="440" y="162" class="box-tag">ZERO-SECRET PROXY LAYER</text>
+  <text x="440" y="195" class="box-desc">• <tspan font-weight="bold">POST /api/tg</tspan>: Proxies Telegram notifications</text>
+  <text x="440" y="220" class="box-desc">• <tspan font-weight="bold">POST /api/dispatch</tspan>: Triggers GitHub Action</text>
+  <text x="440" y="245" class="box-desc">• <tspan font-weight="bold">GET /api/raw/*</tspan>: Proxies latest template updates</text>
+  <text x="440" y="270" class="box-desc">• Nodes require ZERO private credentials on disk</text>
+
+  <!-- ==================== 3. Cloud Cluster ==================== -->
+  <rect x="860" y="110" width="300" height="180" class="box-card"/>
+  <text x="880" y="140" class="box-title">Cloud Cluster (GitHub Actions)</text>
+  <text x="880" y="162" class="box-tag">PARALLEL SUBNET SCANNER</text>
+  <text x="880" y="195" class="box-desc">• Triggered via <tspan font-weight="bold">repository_dispatch</tspan></text>
+  <text x="880" y="220" class="box-desc">• Scans target IPv4 / IPv6 /22 subnets</text>
+  <text x="880" y="245" class="box-desc">• Evaluates TLS 1.3 / H2 / ALPN / CDN</text>
+  <text x="880" y="270" class="box-desc">• Publishes fresh <tspan font-weight="bold">${ALIAS}.csv</tspan> artifacts</text>
+
+  <!-- ==================== 4. Remote Node Engine ==================== -->
+  <rect x="420" y="340" width="340" height="190" class="box-card"/>
+  <text x="440" y="370" class="box-title">VPS Node (Docker / X-ray)</text>
+  <text x="440" y="392" class="box-tag">7x24 DAEMON &amp; AUTO-HEAL</text>
+  <text x="440" y="420" class="box-desc">• <tspan font-weight="bold">runner.sh</tspan>: Atomic template hot-patching</text>
+  <text x="440" y="445" class="box-desc">• <tspan font-weight="bold">reality-checker</tspan>: Native ClientHello probe</text>
+  <text x="440" y="470" class="box-desc">• <tspan font-weight="bold">reality_rotate.sh</tspan>: 7-tier SNI selector</text>
+  <text x="440" y="495" class="box-desc">• Normal: <tspan font-weight="bold">100% Silent</tspan> | Blocked: <tspan font-weight="bold">Auto-Heal</tspan></text>
+
+  <!-- ==================== 5. Alerts & Clients ==================== -->
+  <rect x="860" y="340" width="300" height="190" class="box-card"/>
+  <text x="880" y="370" class="box-title">Telegram &amp; Subscribers</text>
+  <text x="880" y="392" class="box-tag">CONSUMPTION &amp; ALERTING</text>
+  <text x="880" y="420" class="box-desc">• <tspan font-weight="bold">Node Ready</tspan>: Single all-in-one card</text>
+  <text x="880" y="445" class="box-desc">• <tspan font-weight="bold">Auto-Healed</tspan>: New SNI + QX / VLESS URI</text>
+  <text x="880" y="470" class="box-desc">• <tspan font-weight="bold">Health Report</tspan>: 6-dimension check metrics</text>
+  <text x="880" y="495" class="box-desc">• <tspan font-weight="bold">Critical Alert</tspan>: Fallback failure warning</text>
+
+  <!-- ==================== Connectors & Arrows ==================== -->
+  <!-- CLI to Gateway -->
+  <path d="M 320 200 L 420 200" class="arrow"/>
+  <text x="370" y="190" class="arrow-label">Deploy/Sync</text>
+
+  <!-- CLI to VPS -->
+  <path d="M 320 435 L 420 435" class="arrow"/>
+  <text x="370" y="425" class="arrow-label">SSH Batch</text>
+
+  <!-- Gateway to GitHub -->
+  <path d="M 760 200 L 860 200" class="arrow"/>
+  <text x="810" y="190" class="arrow-label">Dispatch</text>
+
+  <!-- GitHub to VPS (Download CSV) -->
+  <path d="M 910 290 L 910 320 L 760 380" class="arrow"/>
+  <text x="850" y="335" class="arrow-label">Pull Hot CSV</text>
+
+  <!-- VPS to Gateway (Proxy TG & Dispatch) -->
+  <path d="M 590 340 L 590 290" class="arrow"/>
+  <text x="545" y="320" class="arrow-label">Auth Proxy</text>
+
+  <!-- VPS to Telegram -->
+  <path d="M 760 435 L 860 435" class="arrow"/>
+  <text x="810" y="425" class="arrow-label">Notify Config</text>
+
+  <!-- Auto-healing Loop Indicator (Dash) -->
+  <path d="M 680 530 L 680 560 L 980 560 L 980 530" class="arrow-dash"/>
+  <text x="830" y="555" class="arrow-label-dash">7x24 Cascade Auto-Healing Closed Loop</text>
+</svg>

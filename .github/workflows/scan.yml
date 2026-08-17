@@ -1,0 +1,146 @@
+name: Cloud Isolated REALITY Scanner
+run-name: Scanner - ${{ github.event.client_payload.alias || inputs.alias || 'Unknown Node' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      alias:
+        description: 'Server Alias (Optional)'
+        required: false
+        type: string
+      target_ip:
+        description: 'Target Server IP'
+        required: true
+        type: string
+      target_cidr_v4:
+        description: 'Target IPv4 CIDR'
+        required: true
+        type: string
+      target_cidr_v6:
+        description: 'Target IPv6 CIDR'
+        required: false
+        default: 'none'
+        type: string
+      timestamp:
+        description: 'Scan Request Timestamp'
+        required: false
+        type: string
+  repository_dispatch:
+    types: [scan_trigger]
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Scan Target Envs
+        run: |
+          TARGET_IP="${{ inputs.target_ip || github.event.client_payload.target_ip }}"
+          TARGET_CIDR_V4="${{ inputs.target_cidr_v4 || github.event.client_payload.target_cidr_v4 }}"
+          TARGET_CIDR_V6="${{ inputs.target_cidr_v6 || github.event.client_payload.target_cidr_v6 || 'none' }}"
+          ALIAS="${{ inputs.alias || github.event.client_payload.alias }}"
+          TIMESTAMP="${{ inputs.timestamp || github.event.client_payload.timestamp }}"
+          
+          if [ -n "$TARGET_IP" ]; then
+            echo "::add-mask::$TARGET_IP"
+          fi
+          if [ -n "$TARGET_CIDR_V4" ]; then
+            echo "::add-mask::$TARGET_CIDR_V4"
+          fi
+          if [ -n "$TARGET_CIDR_V6" ] && [ "$TARGET_CIDR_V6" != "none" ]; then
+            echo "::add-mask::$TARGET_CIDR_V6"
+          fi
+
+          if [ -z "$TARGET_IP" ] || [ -z "$TARGET_CIDR_V4" ]; then
+            echo "SKIP_SCAN=true" >> $GITHUB_ENV
+            echo "未指定目标 IP 或网段，跳过扫描。"
+            exit 0
+          fi
+
+          PREFIX="${ALIAS:-Unknown}"
+          OUT_FILE="${PREFIX}.csv"
+
+          echo "SKIP_SCAN=false" >> $GITHUB_ENV
+          echo "TARGET_IP=${TARGET_IP}" >> $GITHUB_ENV
+          echo "TARGET_CIDR_V4=${TARGET_CIDR_V4}" >> $GITHUB_ENV
+          echo "TARGET_CIDR_V6=${TARGET_CIDR_V6}" >> $GITHUB_ENV
+          echo "ALIAS=${ALIAS}" >> $GITHUB_ENV
+          echo "OUT_FILE=${OUT_FILE}" >> $GITHUB_ENV
+          echo "PREFIX=${PREFIX}" >> $GITHUB_ENV
+
+      - name: Execute Network Scan
+        if: env.SKIP_SCAN != 'true'
+        run: |
+          echo "开始在 GitHub Actions 独立云端进行双栈网段高并发扫描: ${TARGET_CIDR_V4} 与 ${TARGET_CIDR_V6}..."
+          echo "${TARGET_CIDR_V4}" > targets.txt
+          if [ "${TARGET_CIDR_V6}" != "none" ] && [ -n "${TARGET_CIDR_V6}" ]; then
+            echo "${TARGET_CIDR_V6}" >> targets.txt
+          fi
+          chmod +x ./tools/RealiTLScanner ./tools/reality-checker
+          timeout 120s ./tools/RealiTLScanner -in targets.txt -46 -port 443 -thread 800 -out "${OUT_FILE}" || true
+          touch "${OUT_FILE}"
+          ls -la "${OUT_FILE}"
+
+      - name: Push CSV to Cloudflare Gateway KV
+        if: env.SKIP_SCAN != 'true'
+        env:
+          GATEWAY_URL: ${{ secrets.GATEWAY_URL }}
+          GATEWAY_AUTH_KEY: ${{ secrets.GATEWAY_AUTH_KEY }}
+        run: |
+          if [ -n "$GATEWAY_URL" ]; then
+            echo "☁️ 正在将脱敏扫描产物私密推送到 Cloudflare KV 存储..."
+            AUTH_HEADER=""
+            if [ -n "$GATEWAY_AUTH_KEY" ]; then
+              AUTH_HEADER="Authorization: Bearer $GATEWAY_AUTH_KEY"
+            fi
+            curl -s -X PUT \
+              ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+              -H "Content-Type: text/csv" \
+              --data-binary "@${OUT_FILE}" \
+              "${GATEWAY_URL}/api/storage/${OUT_FILE}" || true
+          fi
+
+      - name: Clean up old assets
+        if: env.SKIP_SCAN != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view latest --json assets -q ".assets[].name" 2>/dev/null | grep -E "^${PREFIX}(_[0-9_]+)?\.csv$" | while read -r asset; do
+            echo "Deleting old asset: $asset"
+            gh release delete-asset latest "$asset" -y || true
+          done || true
+
+      - name: Release Updated CSV
+        if: env.SKIP_SCAN != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest REALITY Scan Result
+          body: |
+            Automated dual-stack cloud scan results for ${{ env.ALIAS || 'Unknown Node' }}.
+          files: |
+            ${{ env.OUT_FILE }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Send Telegram Notification
+        if: env.SKIP_SCAN != 'true'
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          if [ -n "$TG_BOT_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
+              NODE_NAME="${ALIAS:-Unknown Node}"
+              MESSAGE=$(printf "*GitHub Actions 云端双栈扫描完成*\n\n- *节点*: \`%s\`\n- *扫描库*: \`%s\` 已打包并发布至 GitHub Release。\n\n服务器可立即通过拉取指令更新节点！" "$NODE_NAME" "$OUT_FILE")
+              curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+                  -d chat_id="${TG_CHAT_ID}" \
+                  -d parse_mode="Markdown" \
+                  --data-urlencode "text=${MESSAGE}"
+          fi
+
+

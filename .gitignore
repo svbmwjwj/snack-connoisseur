@@ -1,0 +1,19 @@
+# Obsidian Canvas flowchart symlinks & canvas
+*.canvas
+
+# AI Agent & Assistant configurations
+.agents/
+.superpowers/
+
+# Dynamically generated local scripts & temporary files
+reality_check.sh
+reality_rotate.sh
+async_deploy.sh
+fix_node.sh
+fallback_snis.txt
+
+# Environment & Log files
+.env
+*.log
+.DS_Store
+scratch/
