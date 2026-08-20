@@ -12,8 +12,13 @@ async_deploy.sh
 fix_node.sh
 fallback_snis.txt
 
+# Python cache
+__pycache__/
+*.py[cod]
+
 # Environment & Log files
 .env
 *.log
 .DS_Store
 scratch/
+

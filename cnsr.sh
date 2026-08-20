@@ -281,6 +281,30 @@ function select_menu() {
     MENU_CHOICE=$((cur + 1))
 }
 
+function guess_default_user() {
+    local alias_lower=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+    
+    # 操作系统关键词优先
+    if [[ "$alias_lower" =~ (ubuntu) ]]; then
+        echo "ubuntu"
+    elif [[ "$alias_lower" =~ (debian) ]]; then
+        echo "admin"
+    elif [[ "$alias_lower" =~ (centos|rocky|alma|amzn|ec2) ]]; then
+        echo "ec2-user"
+    elif [[ "$alias_lower" =~ (opc) ]]; then
+        echo "opc"
+    # 云厂商关键词推断
+    elif [[ "$alias_lower" =~ (aws|lightsail|ls) ]]; then
+        echo "admin"
+    elif [[ "$alias_lower" =~ (oci|oracle) ]]; then
+        echo "ubuntu"
+    elif [[ "$alias_lower" =~ (gcp|google) ]]; then
+        echo "admin"
+    else
+        echo "root"
+    fi
+}
+
 function get_real_host() {
     local host=$(ssh -G "$SSH_ALIAS" 2>/dev/null | awk '/^hostname / {print $2}')
     if [ -z "$host" ]; then
@@ -657,17 +681,29 @@ function module_init() {
 
     local DETECTED_USER=""
     if [ -n "$TARGET_IP" ]; then
+        local SUGGESTED_USER=$(guess_default_user "$SSH_ALIAS")
         INPUT_USER=""
         if [ -t 0 ]; then
-            while [ -z "$INPUT_USER" ]; do
-                read -p "👤 请输入初始用户名 (例如 admin / ubuntu / root / ec2-user): " INPUT_USER
-                INPUT_USER=$(echo "$INPUT_USER" | tr -d '\r\n\t' | xargs)
-                if [ -z "$INPUT_USER" ]; then
-                    echo "   ⚠️ 用户名不能为空，请输入服务器的初始登录用户名。"
-                fi
-            done
+            if [ "$CNSR_LANG" = "en" ]; then
+                echo "💡 Detected alias [$SSH_ALIAS], inferred default username: $SUGGESTED_USER"
+                read -p "👤 Enter initial username [Default: $SUGGESTED_USER] (Press Enter to confirm): " INPUT_USER
+            else
+                echo "💡 检测到别名 [$SSH_ALIAS]，推测默认初始用户名: $SUGGESTED_USER"
+                read -p "👤 请输入初始用户名 [默认: $SUGGESTED_USER] (直接回车确认): " INPUT_USER
+            fi
+            INPUT_USER=$(echo "$INPUT_USER" | tr -d '\r\n\t' | xargs)
+            if [ -z "$INPUT_USER" ]; then
+                INPUT_USER="$SUGGESTED_USER"
+            fi
+        else
+            INPUT_USER="$SUGGESTED_USER"
         fi
         DETECTED_USER="$INPUT_USER"
+        if [ "$CNSR_LANG" = "en" ]; then
+            echo "   🎯 Selected initial username: $DETECTED_USER"
+        else
+            echo "   🎯 已采用初始用户名: $DETECTED_USER"
+        fi
         
         # 自动清除本地 possible MITM 残留（如果这个 IP 以前被用过）
         ssh-keygen -R "$TARGET_IP" >/dev/null 2>&1 || true

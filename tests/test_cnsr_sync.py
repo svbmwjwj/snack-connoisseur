@@ -231,5 +231,37 @@ exit 0
         finally:
             shutil.rmtree(temp_dir)
 
+    def test_guess_default_user(self):
+        """Test default username inference based on alias keywords."""
+        cases = [
+            ("aws-sg-01", "admin"),
+            ("lightsail-tokyo", "admin"),
+            ("ls_debian_node", "admin"),
+            ("my-ubuntu-box", "ubuntu"),
+            ("oci-us-west", "ubuntu"),
+            ("oracle_cloud", "ubuntu"),
+            ("ec2-amazon-linux", "ec2-user"),
+            ("amzn2023-node", "ec2-user"),
+            ("centos-vps", "ec2-user"),
+            ("rocky-linux", "ec2-user"),
+            ("opc-custom", "opc"),
+            ("gcp-instance", "admin"),
+            ("dmit-hk-pro", "root"),
+            ("bwg-la-01", "root"),
+            ("vultr-sgp", "root"),
+            ("custom-node", "root"),
+        ]
+        for alias, expected_user in cases:
+            bash_cmd = f"""
+set -e
+eval "$(sed -n '/function guess_default_user()/,/^}}/p' "{self.cnsr_path}")"
+guess_default_user "{alias}"
+"""
+            res = subprocess.run(["bash", "-c", bash_cmd], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"Error running guess_default_user for {alias}")
+            actual_user = res.stdout.strip()
+            self.assertEqual(actual_user, expected_user, f"Alias '{alias}' expected '{expected_user}', got '{actual_user}'")
+
 if __name__ == "__main__":
     unittest.main()
+
