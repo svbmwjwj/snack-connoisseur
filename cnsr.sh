@@ -322,6 +322,7 @@ function upgrade_ssh_config_hostname() {
     done
 
     if [ -n "$resolved_ip" ]; then
+        ssh-keygen -R "$domain" >/dev/null 2>&1 || true
         python3 -c "
 import sys, re
 config_path = '$HOME/.ssh/config'
@@ -696,27 +697,27 @@ function module_init() {
                 1)
                     mkdir -p "$HOME/.ssh/pub"
                     local AGENT_PUB_FILE="$HOME/.ssh/pub/${SSH_ALIAS}.pub"
-                    local MATCHED_KEY=$(ssh-add -L 2>/dev/null | grep -i "$SSH_ALIAS" || true)
+                    local agent_keys=()
+                    while IFS= read -r line; do
+                        [ -n "$line" ] && agent_keys+=("$line")
+                    done < <(ssh-add -L 2>/dev/null || true)
 
-                    if [ -n "$MATCHED_KEY" ]; then
-                        echo "$MATCHED_KEY" > "$AGENT_PUB_FILE"
-                        echo "   🎯 精确命中 SSH Agent 中为此节点预留的别名公钥！"
-                    elif [ -f "$AGENT_PUB_FILE" ]; then
-                        echo "   📄 已检测到本地已有专属公钥: $AGENT_PUB_FILE"
+                    if [ ${#agent_keys[@]} -eq 0 ]; then
+                        echo "   ❌ SSH Agent 中没有任何密钥！请先执行 ssh-add <私钥>。"
+                        exit 1
+                    elif [ ${#agent_keys[@]} -eq 1 ]; then
+                        echo "   🎯 SSH Agent 中仅有一把密钥，自动选中: ${agent_keys[0]##* }"
+                        echo "${agent_keys[0]}" > "$AGENT_PUB_FILE"
                     else
-                        echo "   ℹ️ 未在 SSH Agent 中自动发现包含别名 [$SSH_ALIAS] 的密钥。"
-                        echo "   📋 当前 Agent 中已加载的密钥列表:"
-                        ssh-add -L 2>/dev/null | awk '{print "      - " $3 " (" $1 ")"}'
-                        read -p "   👉 请输入要使用的密钥别名或公钥内容 (直接回车使用第1个): " MANUAL_AGENT_KEY
-                        if [ -n "$MANUAL_AGENT_KEY" ]; then
-                            if [[ "$MANUAL_AGENT_KEY" =~ ^ssh- ]]; then
-                                echo "$MANUAL_AGENT_KEY" > "$AGENT_PUB_FILE"
-                            else
-                                ssh-add -L 2>/dev/null | grep -i "$MANUAL_AGENT_KEY" | head -n 1 > "$AGENT_PUB_FILE" || true
-                            fi
-                        else
-                            ssh-add -L 2>/dev/null | head -n 1 > "$AGENT_PUB_FILE" || true
-                        fi
+                        local options=()
+                        for k in "${agent_keys[@]}"; do
+                            local comment=$(echo "$k" | awk '{print $3}')
+                            options+=("$comment")
+                        done
+                        select_menu "📋 检测到多个 Agent 密钥，请选择 (↑/↓ 切换，Enter 确认):" "${options[@]}"
+                        local sel_idx=$((MENU_CHOICE - 1))
+                        echo "   🎯 您选择了: ${options[$sel_idx]}"
+                        echo "${agent_keys[$sel_idx]}" > "$AGENT_PUB_FILE"
                     fi
 
                     FINAL_IDENTITY_FILE="$AGENT_PUB_FILE"
@@ -757,6 +758,16 @@ function module_init() {
                     FINAL_IDENTITY_FILE="$NEW_KEY_PATH"
                     FINAL_PUB_KEY=$(cat "$NEW_PUB_PATH")
                     echo "   ✅ 专属密钥已生成并保存在: $NEW_KEY_PATH"
+                    
+                    echo "   ⚠️ 新实例尚未包含此新密钥。我们将使用您现有的临时密钥将其安全注入。"
+                    read -p "📁 请输入现有私钥路径 (直接回车尝试使用 SSH Agent 自动注入): " TEMP_PEM
+                    if [ -n "$TEMP_PEM" ]; then
+                        eval TEMP_PEM="$TEMP_PEM"
+                        ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i "$TEMP_PEM" "$DETECTED_USER@$TARGET_IP" "echo \"$FINAL_PUB_KEY\" >> ~/.ssh/authorized_keys" >/dev/null 2>&1 || true
+                    else
+                        ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$DETECTED_USER@$TARGET_IP" "echo \"$FINAL_PUB_KEY\" >> ~/.ssh/authorized_keys" >/dev/null 2>&1 || true
+                    fi
+                    echo "   ✅ 尝试自动注入专属公钥完成！"
                     ;;
             esac
 
@@ -1042,12 +1053,7 @@ except Exception as e:
           # 拒绝除了新账户之外的其他默认用户
           echo \"AllowUsers $SHADOW_USER\" | sudo tee -a /etc/ssh/sshd_config >/dev/null
           
-          sudo systemctl restart sshd
-          sudo ufw delete allow 22/tcp >/dev/null 2>&1
-        "
-        
-        # 将 docker_app 迁移到影子账户
-        ssh "$SSH_ALIAS" "
+          # 目录迁移与权限调整 (在断开 sshd 之前执行)
           sudo mkdir -p /home/$SHADOW_USER/docker-apps
           sudo mv ${DOCKER_APP_DIR} /home/$SHADOW_USER/docker-apps/
           sudo chown -R $SHADOW_USER:$SHADOW_USER /home/$SHADOW_USER/docker-apps
@@ -1056,6 +1062,9 @@ except Exception as e:
           sudo sed -i 's|${DOCKER_APP_DIR}|/home/$SHADOW_USER/docker-apps/xray|g' /home/$SHADOW_USER/docker-apps/xray/reality_rotate.sh
           sudo sed -i 's|${DOCKER_APP_DIR}|/home/$SHADOW_USER/docker-apps/xray|g' /home/$SHADOW_USER/docker-apps/xray/reality_check.sh
           sudo sed -i 's|${DOCKER_APP_DIR}|/home/$SHADOW_USER/docker-apps/xray|g' /home/$SHADOW_USER/docker-apps/xray/runner.sh
+          
+          sudo systemctl restart sshd
+          sudo ufw delete allow 22/tcp >/dev/null 2>&1 || true
         "
         DOCKER_APP_DIR="/home/$SHADOW_USER/docker-apps/xray"
         
@@ -1085,6 +1094,18 @@ try:
 except Exception as e:
     pass
 " 2>/dev/null || true
+
+        echo "   -> [加固] 尝试通过 AWS CLI 为 Lightsail 实例放行云端防火墙端口 $NEW_SSH_PORT..."
+        if command -v aws >/dev/null 2>&1; then
+            local AWS_REGION_PROBE=$(ssh -o BatchMode=yes "$SSH_ALIAS" "curl -s -m 2 http://169.254.169.254/latest/meta-data/placement/region" 2>/dev/null || true)
+            if [ -n "$AWS_REGION_PROBE" ]; then
+                local INSTANCE_NAME_PROBE=$(aws lightsail get-instances --region "$AWS_REGION_PROBE" 2>/dev/null | jq -r ".instances[] | select(.publicIpAddress == \"$TARGET_IP\") | .name" 2>/dev/null || true)
+                if [ -n "$INSTANCE_NAME_PROBE" ]; then
+                    aws lightsail open-instance-port --instance-name "$INSTANCE_NAME_PROBE" --region "$AWS_REGION_PROBE" --port-info fromPort=$NEW_SSH_PORT,toPort=$NEW_SSH_PORT,protocol=TCP >/dev/null 2>&1 || true
+                    echo "   ✅ 已自动调用 AWS API 在 Lightsail 云防火墙中放行 $NEW_SSH_PORT 端口。"
+                fi
+            fi
+        fi
 
         echo "✅ 深度安全加固完成！新身份已隐匿潜伏。"
     else
@@ -1224,16 +1245,24 @@ function module_rotate_ip() {
     fi
     echo "🚨 开始对 AWS Lightsail 实例 [$INSTANCE_NAME] ($AWS_REGION) 执行断臂求生换 IP..."
     
-    echo "1. 申请新的 Static IP..."
+    echo "1. 探测旧的闲置 Static IP..."
+    local OLD_STATIC_IP_NAME=$(aws lightsail get-static-ips --region "$AWS_REGION" 2>/dev/null | jq -r ".staticIps[]? | select(.attachedTo == \"$INSTANCE_NAME\") | .name" 2>/dev/null || true)
+    
+    echo "2. 申请新的 Static IP..."
     local NEW_IP_NAME="ip-auto-$(date +%s)"
     aws lightsail allocate-static-ip --static-ip-name "$NEW_IP_NAME" --region "$AWS_REGION" > /dev/null
     local NEW_IP=$(aws lightsail get-static-ip --static-ip-name "$NEW_IP_NAME" --region "$AWS_REGION" | jq -r '.staticIp.ipAddress')
     echo "   -> 获得新 IP: $NEW_IP"
     
-    echo "2. 强行绑定至实例..."
+    echo "3. 强行绑定至实例..."
     aws lightsail attach-static-ip --static-ip-name "$NEW_IP_NAME" --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" > /dev/null
     
-    echo "3. 更新本地 SSH Config 以指向新 IP..."
+    if [ -n "$OLD_STATIC_IP_NAME" ]; then
+        echo "   -> 正在释放旧的 Static IP: $OLD_STATIC_IP_NAME (防止配额耗尽与额外扣费)..."
+        aws lightsail release-static-ip --static-ip-name "$OLD_STATIC_IP_NAME" --region "$AWS_REGION" >/dev/null 2>&1 || true
+    fi
+    
+    echo "4. 更新本地 SSH Config 以指向新 IP..."
     python3 -c "
 import os, sys
 config_path = os.path.expanduser('~/.ssh/config')
@@ -1263,7 +1292,7 @@ with open(config_path, 'w') as f:
     f.writelines(new_lines)
 "
     
-    echo "4. 等待新 IP 的 SSH 端口恢复响应..."
+    echo "5. 等待新 IP 的 SSH 端口恢复响应..."
     for i in {1..15}; do
         if ssh -o BatchMode=yes -o ConnectTimeout=2 "$SSH_ALIAS" "echo up" &>/dev/null; then
             echo "   ✅ SSH 已恢复连接！"
@@ -1272,10 +1301,10 @@ with open(config_path, 'w') as f:
         sleep 2
     done
 
-    echo "5. 级联触发 Cloudflare DNS 更新与服务端节点配置同步..."
+    echo "6. 级联触发 Cloudflare DNS 更新与服务端节点配置同步..."
     module_rotate_dns
     
-    echo "6. 自动触发远端 X-ray 指纹轮换以推送最新节点配置到 Telegram..."
+    echo "7. 自动触发远端 X-ray 指纹轮换以推送最新节点配置到 Telegram..."
     module_rotate_xray
     
     echo "🎉 自动换 IP 与自愈修复全部完成！"
