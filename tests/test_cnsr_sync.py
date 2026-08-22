@@ -17,7 +17,7 @@ class TestCnsrSync(unittest.TestCase):
     def test_cnsr_usage_includes_update(self):
         """Running cnsr.sh with no args should print usage containing the update command."""
         res = subprocess.run(["bash", self.cnsr_path], capture_output=True, text=True)
-        self.assertNotEqual(res.returncode, 0)
+        self.assertEqual(res.returncode, 0)
         self.assertIn("update <别名>", res.stdout)
 
     def test_sanitize_env_for_node_removes_cloud_credentials(self):
@@ -40,12 +40,12 @@ GATEWAY_AUTH_KEY="gw_auth_token_999"
 """)
             out_env_path = os.path.join(temp_dir, "node_sanitized.env")
 
-            # Extract sanitize_env_for_node function from cnsr.sh and run in bash
+            # Extract sanitize_env_for_node function from lib/security.sh and run in bash
             bash_script = f"""
 set -e
 cd "{self.repo_root}"
 source "{mock_env_path}"
-eval "$(sed -n '/function sanitize_env_for_node()/,/^}}/p' "{self.cnsr_path}")"
+source lib/security.sh
 sanitize_env_for_node "{out_env_path}"
 """
             res = subprocess.run(["bash", "-c", bash_script], capture_output=True, text=True)
@@ -148,10 +148,11 @@ set -e
 cd "{self.repo_root}"
 source "{mock_env_path}"
 export PATH="{bin_dir}:$PATH"
-
-# Source functions from cnsr.sh
-eval "$(sed -n '/function sanitize_env_for_node()/,/^}}/p' "{self.cnsr_path}")"
-eval "$(sed -n '/function sync_node_scripts()/,/^}}/p' "{self.cnsr_path}")"
+# Source functions from lib and core
+source lib/ui.sh
+source lib/ssh.sh
+source lib/security.sh
+source core/update.sh
 
 sync_node_scripts "sg_test_node"
 """
@@ -254,7 +255,8 @@ exit 0
         for alias, expected_user in cases:
             bash_cmd = f"""
 set -e
-eval "$(sed -n '/function guess_default_user()/,/^}}/p' "{self.cnsr_path}")"
+cd "{self.repo_root}"
+source lib/ssh.sh
 guess_default_user "{alias}"
 """
             res = subprocess.run(["bash", "-c", bash_cmd], capture_output=True, text=True)

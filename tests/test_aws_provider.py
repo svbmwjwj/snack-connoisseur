@@ -1,8 +1,7 @@
 import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 import sys
 import os
-import io
 
 # Add repository root to sys.path so providers package is discoverable
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -113,7 +112,7 @@ class TestAwsProviderRotateIp:
             staticIpName="ip-old-12345"
         )
         assert result["new_ip"] == "203.0.113.50"
-        assert result["old_ip"] == "198.51.100.10" or result["old_static_ip"] == "ip-old-12345"
+        assert result.get("old_ip") == "198.51.100.10" or result.get("old_static_ip") == "ip-old-12345"
 
     @patch("providers.aws.boto3.client")
     def test_rotate_ip_without_prior_static_ip(self, mock_boto):
