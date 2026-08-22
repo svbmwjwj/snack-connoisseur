@@ -14,12 +14,17 @@ CONFIG_FILE="${DOCKER_DIR}/conf/config.json"
 ENV_FILE="${DOCKER_DIR}/.env"
 
 NOTIFY_TG=false
+NOTIFY_ON_ERROR=false
 TEST_TG_MODE=false
 SILENT_MODE=false
 BRIEF_MODE=false
 for arg in "$@"; do
     if [ "$arg" = "--notify" ] || [ "$arg" = "-n" ]; then
         NOTIFY_TG=true
+    fi
+    if [ "$arg" = "--notify-on-error" ]; then
+        NOTIFY_TG=true
+        NOTIFY_ON_ERROR=true
     fi
     if [ "$arg" = "--test-tg" ]; then
         NOTIFY_TG=true
@@ -353,11 +358,15 @@ if [ "$NOTIFY_TG" = true ] && { [ -n "$GATEWAY_URL" ] || { [ -n "$TG_BOT_TOKEN" 
 
         echo "✅ Telegram 全套样张推送成功！"
     else
-        echo "📱 正在推送体检报告至 Telegram..."
-        UUID_MASKED="${XRAY_UUID:0:8}-****-****-****-************"
-        PUB_MASKED="${XRAY_PUB:0:6}********"
-        MESSAGE=$(tpl_health_full "$SSH_ALIAS" "$CONCLUSION" "$DISPLAY_IPV4" "$DISPLAY_IPV6" "$SERVER_HOST" "$DOMAIN_STATUS" "$PING_REPORT" "$CURRENT_SNI" "$SNI_CODE" "$SNI_BASE" "$SNI_HANDSHAKE" "$SNI_CERT" "$SNI_CDN" "$SNI_RATING" "$SYS_UPTIME" "$TFO_STATUS" "$BBR_STATUS" "$UDP_STATUS" "$CONTAINER_STATUS" "$CONTAINER_UPTIME" "$FLOW" "$UUID_MASKED" "$PUB_MASKED" "$XRAY_SID")
-        send_tg_message "$MESSAGE"
-        echo "✅ 推送成功！"
+        if [ "$NOTIFY_ON_ERROR" = "true" ] && ! echo "$CONCLUSION" | grep -q '🔴'; then
+            echo "📱 批量编排初始化：节点健康检查正常 ($CONCLUSION)，静默跳过推送以防刷屏。"
+        else
+            echo "📱 正在推送体检报告至 Telegram..."
+            UUID_MASKED="${XRAY_UUID:0:8}-****-****-****-************"
+            PUB_MASKED="${XRAY_PUB:0:6}********"
+            MESSAGE=$(tpl_health_full "$SSH_ALIAS" "$CONCLUSION" "$DISPLAY_IPV4" "$DISPLAY_IPV6" "$SERVER_HOST" "$DOMAIN_STATUS" "$PING_REPORT" "$CURRENT_SNI" "$SNI_CODE" "$SNI_BASE" "$SNI_HANDSHAKE" "$SNI_CERT" "$SNI_CDN" "$SNI_RATING" "$SYS_UPTIME" "$TFO_STATUS" "$BBR_STATUS" "$UDP_STATUS" "$CONTAINER_STATUS" "$CONTAINER_UPTIME" "$FLOW" "$UUID_MASKED" "$PUB_MASKED" "$XRAY_SID")
+            send_tg_message "$MESSAGE"
+            echo "✅ 推送成功！"
+        fi
     fi
 fi

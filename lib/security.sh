@@ -21,9 +21,9 @@ function sanitize_env_for_node() {
     # 若配置了 GATEWAY_URL，则开启纯零凭据模式（节点不保留任何 TG/GH 敏感 Token）
     local allowed_keys=()
     if [ -n "$GATEWAY_URL" ]; then
-        allowed_keys=("GATEWAY_URL" "GATEWAY_AUTH_KEY" "DEFAULT_CLOUD_USER" "CNSR_LANG")
+        allowed_keys=("GATEWAY_URL" "GATEWAY_AUTH_KEY" "DEFAULT_CLOUD_USER" "CNSR_LANG" "BATCH_MODE")
     else
-        allowed_keys=("TG_BOT_TOKEN" "TG_CHAT_ID" "GH_TOKEN" "DEFAULT_CLOUD_USER" "CNSR_LANG")
+        allowed_keys=("TG_BOT_TOKEN" "TG_CHAT_ID" "GH_TOKEN" "DEFAULT_CLOUD_USER" "CNSR_LANG" "BATCH_MODE")
     fi
     for key in "${allowed_keys[@]}"; do
         local val="${!key}"

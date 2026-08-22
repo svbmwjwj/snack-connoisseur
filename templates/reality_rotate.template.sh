@@ -432,7 +432,7 @@ echo "✅ X-ray 容器启动正常。"
 
 echo "$NEW_SNI" > "$NEW_DOMAIN_TXT"
 
-echo "📱 [5/5] 推送 Quantumult X 与 V2rayN 配置至 Telegram..."
+echo "📱 [5/5] 生成 Quantumult X 与 V2rayN 配置..."
 
 if [ -n "$GATEWAY_URL" ] || { [ -n "$TG_BOT_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; }; then
     PORT="443"
@@ -440,16 +440,24 @@ if [ -n "$GATEWAY_URL" ] || { [ -n "$TG_BOT_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; };
     QX_CONFIG="vless=${SERVER_HOST}:${PORT}, method=none, password=${NEW_UUID}, obfs=over-tls, obfs-host=${NEW_SNI}, reality-base64-pubkey=${NEW_PUBLIC_KEY}, reality-hex-shortid=${NEW_SHORT_ID}, vless-flow=${FLOW}, udp-relay=true, fast-open=true, tag=${SSH_ALIAS}"
     VLESS_URI="vless://${NEW_UUID}@${SERVER_HOST}:${PORT}?encryption=none&security=reality&sni=${NEW_SNI}&fp=chrome&pbk=${NEW_PUBLIC_KEY}&sid=${NEW_SHORT_ID}&type=tcp&flow=${FLOW}#${SSH_ALIAS}"
 
-    MESSAGE=$(tpl_node_config "$IS_INIT" "$SSH_ALIAS" "$SERVER_HOST" "$NEW_SNI" "$NEW_UUID" "$NEW_PUBLIC_KEY" "$NEW_SHORT_ID" "$QX_CONFIG" "$VLESS_URI")
-
-    send_tg_message "$MESSAGE"
-
-    echo "✅ 配置推送到 Telegram 成功！"
+    if [ "$BATCH_MODE" = "true" ] && [ "$IS_INIT" = "true" ]; then
+        echo "$VLESS_URI" > "${DOCKER_DIR}/vless.txt"
+        echo "$QX_CONFIG" > "${DOCKER_DIR}/qx.txt"
+        echo "✅ 批量编排初始化模式：配置已写入本地 ${DOCKER_DIR}/vless.txt 和 qx.txt，静默单节点推送以防止刷屏。"
+    else
+        MESSAGE=$(tpl_node_config "$IS_INIT" "$SSH_ALIAS" "$SERVER_HOST" "$NEW_SNI" "$NEW_UUID" "$NEW_PUBLIC_KEY" "$NEW_SHORT_ID" "$QX_CONFIG" "$VLESS_URI")
+        send_tg_message "$MESSAGE"
+        echo "✅ 配置推送到 Telegram 成功！"
+    fi
 fi
 
 echo "🩺 启动轮换后自动体检..."
 if [ -f "${DOCKER_DIR}/reality_check.sh" ]; then
-    bash "${DOCKER_DIR}/reality_check.sh" --notify || true
+    if [ "$BATCH_MODE" = "true" ] && [ "$IS_INIT" = "true" ]; then
+        bash "${DOCKER_DIR}/reality_check.sh" --notify-on-error || true
+    else
+        bash "${DOCKER_DIR}/reality_check.sh" --notify || true
+    fi
 fi
 
 echo "🎉 全流程同步轮换与体检完成！"

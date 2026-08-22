@@ -468,11 +468,13 @@ except Exception:
             local p1_err=$(ls -1 "$BATCH_TMP_DIR"/*_aws.err 2>/dev/null | wc -l | xargs)
             local p1_total_finished=$((p1_done + p1_err))
             
-            render_bar_line "$p1_total_finished" "$grp_count" "实例创建与公网 IP 分配中..." 32
+            local now=$(date +%s)
+            local current_elapsed=$((now - start_time_p1))
+            render_bar_line "$p1_total_finished" "$grp_count" "实例创建与公网 IP 分配中..." 32 "$current_elapsed"
             if [ "$p1_total_finished" -ge "$grp_count" ]; then
                 break
             fi
-            sleep 0.5
+            sleep 0.15
         done
         local end_time_p1=$(date +%s)
         local elapsed_p1=$((end_time_p1 - start_time_p1))
@@ -566,6 +568,7 @@ $NODES_TEXT
                 if [ "$DEBUG_MODE" != "true" ]; then
                     exec > "logs/init_worker_${current_alias}.log" 2>&1
                 fi
+                export BATCH_MODE=true
                 source "$SCRIPT_DIR/init.sh"
                 SSH_ALIAS="$current_alias"
                 TARGET_IP="$current_ip"
@@ -589,11 +592,13 @@ $NODES_TEXT
             local p2_err=$(ls -1 "$BATCH_TMP_DIR"/*.err 2>/dev/null | wc -l | xargs)
             local p2_total_finished=$((p2_done + p2_err))
             
-            render_bar_line "$p2_total_finished" "$created_count" "节点基础环境装配中..." 32
+            local now=$(date +%s)
+            local current_elapsed=$((now - start_time_p2))
+            render_bar_line "$p2_total_finished" "$created_count" "节点基础环境装配中..." 32 "$current_elapsed"
             if [ "$p2_total_finished" -ge "$created_count" ]; then
                 break
             fi
-            sleep 0.5
+            sleep 0.15
         done
         local end_time_p2=$(date +%s)
         local elapsed_p2=$((end_time_p2 - start_time_p2))

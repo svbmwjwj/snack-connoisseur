@@ -165,12 +165,16 @@ function select_menu() {
     MENU_CHOICE=$((cur + 1))
 }
 
+_SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+_SPINNER_IDX=0
+
 # 动态重绘进度条辅助函数 (Homebrew 风格)
 function render_bar_line() {
     local current="$1"
     local total="$2"
     local suffix="${3:-}"
     local bar_width="${4:-32}"
+    local elapsed="${5:-0}"
 
     if [ "$total" -le 0 ]; then total=1; fi
     if [ "$current" -gt "$total" ]; then current="$total"; fi
@@ -183,7 +187,14 @@ function render_bar_line() {
     for ((i=0; i<filled; i++)); do bar+="█"; done
     for ((i=0; i<unfilled; i++)); do bar+="░"; done
 
-    printf "\r\033[2K    [\033[36m%s\033[0m] %d/%d (%d%%) %s" "$bar" "$current" "$total" "$percent" "$suffix"
+    local spinner_char="${_SPINNER_FRAMES[$_SPINNER_IDX]}"
+    _SPINNER_IDX=$(( (_SPINNER_IDX + 1) % 10 ))
+
+    if [ "$elapsed" -gt 0 ]; then
+        printf "\r\033[2K \033[36m%s\033[0m   [\033[36m%s\033[0m] %d/%d (%d%%) %s (%ds)" "$spinner_char" "$bar" "$current" "$total" "$percent" "$suffix" "$elapsed"
+    else
+        printf "\r\033[2K \033[36m%s\033[0m   [\033[36m%s\033[0m] %d/%d (%d%%) %s" "$spinner_char" "$bar" "$current" "$total" "$percent" "$suffix"
+    fi
 }
 
 # 进度条固化完成行
