@@ -6,42 +6,26 @@ import uuid
 import sys
 import re
 
-def _parse_region_and_zone(input_str, explicit_zone=None):
-    if not input_str:
-        return input_str, explicit_zone
-    input_str = str(input_str).strip()
-    m = re.match(r'^([a-z]+-[a-z]+-\d+)([a-z])$', input_str)
-    if m:
-        region = m.group(1)
-        zone = explicit_zone or input_str
-        return region, zone
-    region = input_str
-    if explicit_zone:
-        explicit_zone = str(explicit_zone).strip()
-        if len(explicit_zone) == 1:
-            zone = f"{region}{explicit_zone}"
-        else:
-            zone = explicit_zone
-    else:
-        zone = f"{region}a"
-    return region, zone
-
-
-def _normalize_region(region):
+def validate_region(region):
     if not region:
-        return region
+        raise ValueError("Missing AWS region parameter (e.g., --region ap-northeast-1)")
     region = str(region).strip()
-    m = re.match(r'^([a-z]+-[a-z]+-\d+)[a-z]$', region)
+    m = re.match(r'^([a-z]+-[a-z]+-\d+)([a-z])$', region)
     if m:
-        return m.group(1)
+        suggested_region = m.group(1)
+        suggested_zone = region
+        raise ValueError(
+            f"Invalid AWS region '{region}': this is an Availability Zone.\n"
+            f"Please set REGION='{suggested_region}' and optionally ZONE='{suggested_zone}' in your profile template."
+        )
     return region
 
 
 def create_instance(args=None, **kwargs):
     if args is not None:
         instance_name = getattr(args, 'alias', None)
-        raw_region = getattr(args, 'region', None)
-        zone_arg = getattr(args, 'zone', None)
+        region = getattr(args, 'region', None)
+        zone = getattr(args, 'zone', None)
         count = getattr(args, 'count', 1)
         bundle_id = getattr(args, 'bundle', getattr(args, 'bundle_id', "nano_3_0"))
         blueprint_id = getattr(args, 'blueprint', getattr(args, 'blueprint_id', "debian_12"))
@@ -49,15 +33,15 @@ def create_instance(args=None, **kwargs):
         key_pair_name = getattr(args, 'key_pair_name', None)
     else:
         instance_name = kwargs.get("instance_name")
-        raw_region = kwargs.get("region")
-        zone_arg = kwargs.get("zone")
+        region = kwargs.get("region")
+        zone = kwargs.get("zone")
         count = kwargs.get("count", 1)
         bundle_id = kwargs.get("bundle", kwargs.get("bundle_id", "nano_3_0"))
         blueprint_id = kwargs.get("blueprint", kwargs.get("blueprint_id", "debian_12"))
         user_data = kwargs.get("user_data")
         key_pair_name = kwargs.get("key_pair_name")
 
-    region, az = _parse_region_and_zone(raw_region, zone_arg)
+    region = validate_region(region)
     client = boto3.client("lightsail", region_name=region)
     
     # Format instance names based on count
@@ -86,11 +70,12 @@ def create_instance(args=None, **kwargs):
     if instances_to_create:
         create_kwargs = {
             "instanceNames": instances_to_create,
-            "availabilityZone": az,
             "bundleId": bundle_id,
             "blueprintId": blueprint_id,
         }
-        
+        if zone:
+            create_kwargs["availabilityZone"] = zone
+            
         if user_data:
             create_kwargs["userData"] = user_data
         if key_pair_name:
@@ -123,7 +108,7 @@ def delete_instance(args=None, **kwargs):
     if not pattern:
         raise ValueError("Missing instance name or pattern to delete")
 
-    region = _normalize_region(region)
+    region = validate_region(region)
     client = boto3.client("lightsail", region_name=region)
     
     # Find all instances matching pattern
@@ -181,7 +166,7 @@ def rotate_ip(args=None, **kwargs):
         region = kwargs.get("region")
         current_ip = kwargs.get("current_ip")
         
-    region = _normalize_region(region)
+    region = validate_region(region)
     client = boto3.client("lightsail", region_name=region)
     
     if not instance_name and current_ip:
