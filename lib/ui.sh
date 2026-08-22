@@ -17,7 +17,7 @@ COMMANDS:
   init-aws -f <conf>           Batch provision AWS nodes from a config file
   destroy-aws <alias|pattern>  Destroy AWS Lightsail instance(s) and clean SSH config (Option: --region)
   check <alias>                Comprehensive health check: latency, SNI quality, BBR, container
-  print <alias|pattern>        Print VLESS subscriptions and QX configs (Option: --tg to push)
+  print <alias|pattern>        Print VLESS configs or IP directory (Options: --ip, --tg)
   update <alias|pattern>       Full hot-update: sync runner shim, self-healing probe, sanitized env
   rotate-sni <alias>           Force fingerprint rotation: reset UUID, keys, ShortID, and SNI
   rotate-dns <alias>           Active domain rotation: refresh secondary domain via Cloudflare
@@ -31,7 +31,8 @@ OPTIONS:
   --harden                     Enable high-security hardening (for init)
   --debug                      Enable verbose debugging output (for init)
   --detach                     Run batch provisioning in background and detach immediately
-  --tg                         Push printed configs to Telegram (for print)
+  --ip                         Print public IPv4 and IPv6 directory (for print)
+  --tg                         Push printed output to Telegram (for print)
   --region <region>            Specify AWS region (for init-aws, destroy-aws)
   --count <N>                  Specify node count for AWS initialization (Max: 20)
   --key-pair <name>            Specify AWS key pair name (for init-aws)
@@ -44,6 +45,7 @@ EXAMPLES:
   ./cnsr.sh init-aws -f jp_aws-lightsail --count 3 # Batch provision from preset
   ./cnsr.sh init-aws -f jp_aws-lightsail --count 3 --detach # Detached batch deploy (safe to close terminal)
   ./cnsr.sh print "jp_aws-lightsail-*"             # Print aggregated node configs to terminal
+  ./cnsr.sh print "jp_aws-lightsail-*" --ip        # Print public IPv4 and IPv6 addresses
   ./cnsr.sh print "jp_aws-lightsail-*" --tg        # Push aggregated node configs to Telegram
   ./cnsr.sh destroy-aws "jp_aws-lightsail-*" --region ap-northeast-1 # Batch destroy nodes
   ./cnsr.sh test-tg sg_aws                         # Preview Telegram alert samples
@@ -64,7 +66,7 @@ Snack Connoisseur (cnsr)
   init-aws -f <模版预设>        根据地区预设模版批量开机 (如 -f jp_aws-lightsail --count 3)
   destroy-aws <别名|通配符>    销毁 AWS 实例与静态 IP，清理本地 SSH 配置 (必须: --region)
   check <别名>                 全方位健康体检：延迟测评、SNI质量、内核与容器
-  print <别名|通配符>          终端打印节点订阅链接与 QX 配置 (选项: --tg 推送至 Telegram)
+  print <别名|通配符>          打印节点订阅配置或公网 IP 清单 (选项: --ip, --tg)
   update <别名|通配符>         组件全量热更新：平滑同步最新垫片与脱敏凭据
   rotate-sni <别名>            强制指纹轮换：重置 UUID、X25519 密钥、ShortID 与 SNI
   rotate-dns <别名>            主动域变换：调用 Cloudflare API 刷新大厂内网级二级域名
@@ -78,7 +80,8 @@ Snack Connoisseur (cnsr)
   --harden                     (用于 init) 启用高强度系统加固与防爆破防火墙
   --debug                      (用于 init) 开启底层详细调试安装日志 (单台逐个同步执行)
   --detach                     (用于 init-aws) 启用脱机模式，转入后台运行并可安全退出终端
-  --tg                         (用于 print) 将提取的订阅配置推送到 Telegram
+  --ip                         (用于 print) 打印节点的真实公网 IPv4 与 IPv6 清单
+  --tg                         (用于 print) 将提取的内容推送到 Telegram
   --region <region>            (用于 init-aws, destroy-aws) 指定 AWS 区域
   --count <N>                  (用于 init-aws) 指定一次性部署的 AWS 节点数量 (最大上限: 20)
   --key-pair <名称>            (用于 init-aws) 指定 AWS 云端公钥名称
@@ -91,7 +94,8 @@ Snack Connoisseur (cnsr)
   ./cnsr.sh init-aws -f jp_aws-lightsail --count 3 # 从预设模版批量拉起 3 台日本节点
   ./cnsr.sh init-aws -f jp_aws-lightsail --count 3 --detach # 脱机批量拉起 (可直接关闭终端)
   ./cnsr.sh print "jp_aws-lightsail-*"             # 终端打印所有节点的订阅链接与配置
-  ./cnsr.sh print "jp_aws-lightsail-*" --tg        # 将所有节点订阅配置推送到 Telegram
+  ./cnsr.sh print "jp_aws-lightsail-*" --ip        # 终端快速打印所有节点的 IPv4 与 IPv6
+  ./cnsr.sh print "jp_aws-lightsail-*" --ip --tg   # 将所有节点的公网 IP 推送到 Telegram
   ./cnsr.sh destroy-aws "jp_aws-lightsail-*" --region ap-northeast-1 # 批量清理实例与本地 SSH
   ./cnsr.sh test-tg sg_aws                         # 触发 Telegram 样张预览
   ./cnsr.sh check sg_aws                           # 全面体检节点质量

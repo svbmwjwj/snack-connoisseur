@@ -1,6 +1,6 @@
 #!/bin/bash
-# Snack Connoisseur - Print Configurations Module
-# Fetches vless and qx configurations from remote nodes with zero health overhead
+# Snack Connoisseur - Print Configurations & IPs Module
+# Fetches vless, qx configurations or public IPs from remote nodes
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || pwd)"
@@ -14,6 +14,54 @@ if [ -f "$REPO_DIR/.env" ]; then
     source "$REPO_DIR/.env"
     set +a
 fi
+
+function push_tg_msg() {
+    local text="$1"
+
+    uv run python3 -c "
+import os, sys, json, urllib.request, urllib.parse
+
+text = sys.argv[1]
+gateway_url = os.environ.get('GATEWAY_URL', '')
+gateway_auth = os.environ.get('GATEWAY_AUTH_KEY', '')
+bot_token = os.environ.get('TG_BOT_TOKEN', '')
+chat_id = os.environ.get('TG_CHAT_ID', '')
+
+sent = False
+if gateway_url:
+    headers = {'Content-Type': 'application/json', 'User-Agent': 'curl/8.7.1'}
+    if gateway_auth:
+        headers['Authorization'] = f'Bearer {gateway_auth}'
+    req = urllib.request.Request(
+        f'{gateway_url}/api/tg',
+        data=json.dumps({'text': text, 'parse_mode': 'Markdown'}).encode('utf-8'),
+        headers=headers
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status in (200, 201, 204):
+                sent = True
+    except Exception:
+        pass
+
+if not sent and bot_token and chat_id:
+    data = urllib.parse.urlencode({
+        'chat_id': chat_id,
+        'parse_mode': 'Markdown',
+        'text': text
+    }).encode('utf-8')
+    req = urllib.request.Request(
+        f'https://api.telegram.org/bot{bot_token}/sendMessage',
+        data=data,
+        headers={'User-Agent': 'curl/8.7.1'}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            sent = True
+    except Exception:
+        pass
+" "$text"
+}
 
 function push_links_to_tg() {
     local vless_file="$1"
@@ -99,11 +147,14 @@ push_block('🔗 *Quantumult X 节点配置*', qx_file, 'Quantumult X [server_lo
 
 function module_print() {
     local PUSH_TG=false
+    local SHOW_IP=false
     local raw_args=()
 
     for arg in "$@"; do
         if [ "$arg" = "--tg" ]; then
             PUSH_TG=true
+        elif [ "$arg" = "--ip" ]; then
+            SHOW_IP=true
         else
             raw_args+=("$arg")
         fi
@@ -151,7 +202,74 @@ function module_print() {
     local count=${#target_aliases[@]}
     local BATCH_TMP_DIR=$(mktemp -d)
 
-    # 极速并发并行提取
+    # ----------------------------------------------------
+    # 模式 A: --ip 纯 IP 打印 (包含 IPv4 与 IPv6)
+    # ----------------------------------------------------
+    if [ "$SHOW_IP" = true ]; then
+        for cur_alias in "${target_aliases[@]}"; do
+            (
+                # 本地从 ssh config 获取默认 HostName 作为备用
+                local local_v4=""
+                if [ -f "$HOME/.ssh/config" ]; then
+                    local_v4=$(awk "/^Host $cur_alias\$/{flag=1;next}/^Host /{flag=0}flag && /HostName/{print \$2;exit}" "$HOME/.ssh/config" 2>/dev/null || true)
+                fi
+
+                # 远端并发探测真实公网 IPv4 与 IPv6
+                local ip_out
+                ip_out=$(ssh -o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=no "$cur_alias" '
+                    v4=$(hostname -I 2>/dev/null | tr " " "\n" | grep "\." | grep -v "^127\." | grep -v "^172\." | grep -v "^10\." | head -n1)
+                    [ -z "$v4" ] && v4=$(curl -4 -s -m 2 ifconfig.me 2>/dev/null || true)
+                    v6=$(hostname -I 2>/dev/null | tr " " "\n" | grep ":" | grep -v "^fe80" | grep -v "^fc" | grep -v "^fd" | head -n1)
+                    [ -z "$v6" ] && v6=$(curl -6 -s -m 2 ifconfig.me 2>/dev/null || true)
+                    echo "${v4:-none}|${v6:-none}"
+                ' 2>/dev/null || echo "${local_v4:-none}|none")
+
+                local final_v4=$(echo "$ip_out" | awk -F'|' '{print $1}')
+                local final_v6=$(echo "$ip_out" | awk -F'|' '{print $2}')
+                [ -z "$final_v4" ] || [ "$final_v4" = "none" ] && final_v4="${local_v4:-N/A}"
+                [ -z "$final_v6" ] || [ "$final_v6" = "none" ] && final_v6="None"
+
+                echo -e "• ${cur_alias}:\n  - IPv4: ${final_v4}\n  - IPv6: ${final_v6}\n" > "${BATCH_TMP_DIR}/${cur_alias}.ip"
+            ) &
+        done
+
+        wait 2>/dev/null || true
+
+        echo ""
+        echo "================================================================================"
+        if [ "$CNSR_LANG" = "en" ]; then
+            echo "🌐 Node Public IP Directory (Total $count nodes):"
+        else
+            echo "🌐 节点公网 IP 地址清单 (共 $count 台节点):"
+        fi
+        echo "--------------------------------------------------------------------------------"
+        local tg_ip_text=""
+        for cur_alias in "${target_aliases[@]}"; do
+            if [ -f "${BATCH_TMP_DIR}/${cur_alias}.ip" ]; then
+                cat "${BATCH_TMP_DIR}/${cur_alias}.ip"
+                tg_ip_text+="$(cat "${BATCH_TMP_DIR}/${cur_alias}.ip")"
+            fi
+        done
+        echo "================================================================================"
+        echo ""
+
+        if [ "$PUSH_TG" = true ]; then
+            local tg_title="🌐 *节点公网 IP 地址清单* (共 $count 台)\n\`\`\`text\n${tg_ip_text}\`\`\`"
+            push_tg_msg "$tg_title"
+            if [ "$CNSR_LANG" = "en" ]; then
+                echo "💡 IP address directory successfully pushed to Telegram."
+            else
+                echo "💡 节点公网 IP 清单已成功推送至 Telegram。"
+            fi
+        fi
+
+        rm -rf "$BATCH_TMP_DIR"
+        return 0
+    fi
+
+    # ----------------------------------------------------
+    # 模式 B: 默认订阅配置打印 (VLESS / QX)
+    # ----------------------------------------------------
     for cur_alias in "${target_aliases[@]}"; do
         (
             local remote_home
