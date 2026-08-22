@@ -6,6 +6,27 @@ import uuid
 import sys
 import re
 
+def _parse_region_and_zone(input_str, explicit_zone=None):
+    if not input_str:
+        return input_str, explicit_zone
+    input_str = str(input_str).strip()
+    m = re.match(r'^([a-z]+-[a-z]+-\d+)([a-z])$', input_str)
+    if m:
+        region = m.group(1)
+        zone = explicit_zone or input_str
+        return region, zone
+    region = input_str
+    if explicit_zone:
+        explicit_zone = str(explicit_zone).strip()
+        if len(explicit_zone) == 1:
+            zone = f"{region}{explicit_zone}"
+        else:
+            zone = explicit_zone
+    else:
+        zone = f"{region}a"
+    return region, zone
+
+
 def _normalize_region(region):
     if not region:
         return region
@@ -19,7 +40,8 @@ def _normalize_region(region):
 def create_instance(args=None, **kwargs):
     if args is not None:
         instance_name = getattr(args, 'alias', None)
-        region = getattr(args, 'region', None)
+        raw_region = getattr(args, 'region', None)
+        zone_arg = getattr(args, 'zone', None)
         count = getattr(args, 'count', 1)
         bundle_id = getattr(args, 'bundle', getattr(args, 'bundle_id', "nano_3_0"))
         blueprint_id = getattr(args, 'blueprint', getattr(args, 'blueprint_id', "debian_12"))
@@ -27,14 +49,15 @@ def create_instance(args=None, **kwargs):
         key_pair_name = getattr(args, 'key_pair_name', None)
     else:
         instance_name = kwargs.get("instance_name")
-        region = kwargs.get("region")
+        raw_region = kwargs.get("region")
+        zone_arg = kwargs.get("zone")
         count = kwargs.get("count", 1)
         bundle_id = kwargs.get("bundle", kwargs.get("bundle_id", "nano_3_0"))
         blueprint_id = kwargs.get("blueprint", kwargs.get("blueprint_id", "debian_12"))
         user_data = kwargs.get("user_data")
         key_pair_name = kwargs.get("key_pair_name")
 
-    region = _normalize_region(region)
+    region, az = _parse_region_and_zone(raw_region, zone_arg)
     client = boto3.client("lightsail", region_name=region)
     
     # Format instance names based on count
@@ -63,7 +86,7 @@ def create_instance(args=None, **kwargs):
     if instances_to_create:
         create_kwargs = {
             "instanceNames": instances_to_create,
-            "availabilityZone": f"{region}a",
+            "availabilityZone": az,
             "bundleId": bundle_id,
             "blueprintId": blueprint_id,
         }
@@ -251,6 +274,7 @@ def main(cli_args=None):
     create_parser = subparsers.add_parser("create")
     create_parser.add_argument("--alias", required=True)
     create_parser.add_argument("--region", required=True)
+    create_parser.add_argument("--zone", default=None)
     create_parser.add_argument("--count", type=int, default=1)
     create_parser.add_argument("--bundle", "--bundle-id", dest="bundle", default="nano_3_0")
     create_parser.add_argument("--blueprint", "--blueprint-id", dest="blueprint", default="debian_12")

@@ -11,6 +11,7 @@ if [ -f "$LIB_DIR/ssh.sh" ]; then source "$LIB_DIR/ssh.sh"; fi
 CONFIG_INPUT=""
 CLI_ALIAS=""
 CLI_REGION=""
+CLI_ZONE=""
 CLI_COUNT=""
 CLI_BUNDLE=""
 CLI_BLUEPRINT=""
@@ -42,6 +43,14 @@ while [ $# -gt 0 ]; do
         --region)
             if [ $# -ge 2 ]; then
                 CLI_REGION="$2"
+                shift 2
+            else
+                shift
+            fi
+            ;;
+        --zone)
+            if [ $# -ge 2 ]; then
+                CLI_ZONE="$2"
                 shift 2
             else
                 shift
@@ -195,11 +204,15 @@ function provision_single_instance() {
     local inst_bundle="$3"
     local inst_blueprint="$4"
     local inst_key_pair="$5"
+    local inst_zone="${6:-}"
 
     export NON_INTERACTIVE=true
     local extra_py_args=()
     if [ -n "$inst_key_pair" ]; then
         extra_py_args+=(--key-pair "$inst_key_pair")
+    fi
+    if [ -n "$inst_zone" ]; then
+        extra_py_args+=(--zone "$inst_zone")
     fi
 
     if [ "$CNSR_LANG" = "en" ]; then
@@ -283,6 +296,7 @@ function provision_batch_group() {
     local grp_bundle="${4:-nano_3_0}"
     local grp_blueprint="${5:-debian_12}"
     local grp_key_pair="${6:-}"
+    local grp_zone="${7:-}"
 
     # 数量安全上限拦截 (最大 20 台，保护 GitHub Actions 配额)
     if [ "$grp_count" -gt 20 ]; then
@@ -327,7 +341,7 @@ function provision_batch_group() {
             if [ "$grp_count" -gt 1 ]; then
                 current_alias="${grp_alias}-${i}"
             fi
-            provision_single_instance "$current_alias" "$grp_region" "$grp_bundle" "$grp_blueprint" "$grp_key_pair"
+            provision_single_instance "$current_alias" "$grp_region" "$grp_bundle" "$grp_blueprint" "$grp_key_pair" "$grp_zone"
         done
     else
         for ((i=1; i<=grp_count; i++)); do
@@ -336,7 +350,7 @@ function provision_batch_group() {
                 if [ "$grp_count" -gt 1 ]; then
                     current_alias="${grp_alias}-${i}"
                 fi
-                provision_single_instance "$current_alias" "$grp_region" "$grp_bundle" "$grp_blueprint" "$grp_key_pair"
+                provision_single_instance "$current_alias" "$grp_region" "$grp_bundle" "$grp_blueprint" "$grp_key_pair" "$grp_zone"
             ) &
         done
         wait
@@ -363,9 +377,10 @@ if [ -n "$CONFIG_INPUT" ]; then
 
     echo "📄 正在加载模版预设 (Loading profile): $RESOLVED_CONF"
 
-    if grep -q -E "^[[:space:]]*(REGION|ALIAS|BUNDLE|BLUEPRINT|KEY_PAIR|KEY)=" "$RESOLVED_CONF"; then
+    if grep -q -E "^[[:space:]]*(REGION|ZONE|ALIAS|BUNDLE|BLUEPRINT|KEY_PAIR|KEY)=" "$RESOLVED_CONF"; then
         # 默认值
         T_REGION=""
+        T_ZONE=""
         T_ALIAS=""
         T_BUNDLE="nano_3_0"
         T_BLUEPRINT="debian_12"
@@ -378,6 +393,7 @@ if [ -n "$CONFIG_INPUT" ]; then
             val=$(echo "$val" | sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//' | tr -d '\r')
             case "$key" in
                 REGION) T_REGION="$val" ;;
+                ZONE) T_ZONE="$val" ;;
                 ALIAS) T_ALIAS="$val" ;;
                 BUNDLE) T_BUNDLE="$val" ;;
                 BLUEPRINT) T_BLUEPRINT="$val" ;;
@@ -388,6 +404,7 @@ if [ -n "$CONFIG_INPUT" ]; then
 
         # CLI 参数具有更高优先级，覆盖模版默认值
         FINAL_REGION="${CLI_REGION:-$T_REGION}"
+        FINAL_ZONE="${CLI_ZONE:-$T_ZONE}"
         FINAL_ALIAS="${CLI_ALIAS:-$T_ALIAS}"
         FINAL_COUNT="${CLI_COUNT:-$T_COUNT}"
         FINAL_BUNDLE="${CLI_BUNDLE:-$T_BUNDLE}"
@@ -399,7 +416,7 @@ if [ -n "$CONFIG_INPUT" ]; then
             exit 1
         fi
 
-        provision_batch_group "$FINAL_ALIAS" "$FINAL_REGION" "$FINAL_COUNT" "$FINAL_BUNDLE" "$FINAL_BLUEPRINT" "$FINAL_KEY_PAIR"
+        provision_batch_group "$FINAL_ALIAS" "$FINAL_REGION" "$FINAL_COUNT" "$FINAL_BUNDLE" "$FINAL_BLUEPRINT" "$FINAL_KEY_PAIR" "$FINAL_ZONE"
         echo "✅ 模版实例编排完成 (Provisioning complete)."
         exit 0
     else
@@ -414,7 +431,7 @@ if [ -n "$CONFIG_INPUT" ]; then
             f_blueprint="${f_blueprint:-debian_12}"
 
             if [ -n "$f_alias" ] && [ -n "$f_region" ]; then
-                provision_batch_group "$f_alias" "$f_region" "$f_count" "$f_bundle" "$f_blueprint" "$CLI_KEY_PAIR"
+                provision_batch_group "$f_alias" "$f_region" "$f_count" "$f_bundle" "$f_blueprint" "$CLI_KEY_PAIR" "$CLI_ZONE"
             fi
         done < "$RESOLVED_CONF"
 
@@ -426,6 +443,7 @@ fi
 # 模式 2: 单组 CLI 参数执行
 FINAL_ALIAS="$CLI_ALIAS"
 FINAL_REGION="$CLI_REGION"
+FINAL_ZONE="$CLI_ZONE"
 FINAL_COUNT="${CLI_COUNT:-1}"
 FINAL_BUNDLE="${CLI_BUNDLE:-nano_3_0}"
 FINAL_BLUEPRINT="${CLI_BLUEPRINT:-debian_12}"
@@ -449,7 +467,7 @@ if [ -z "$FINAL_REGION" ]; then
     exit 1
 fi
 
-provision_batch_group "$FINAL_ALIAS" "$FINAL_REGION" "$FINAL_COUNT" "$FINAL_BUNDLE" "$FINAL_BLUEPRINT" "$FINAL_KEY_PAIR"
+provision_batch_group "$FINAL_ALIAS" "$FINAL_REGION" "$FINAL_COUNT" "$FINAL_BUNDLE" "$FINAL_BLUEPRINT" "$FINAL_KEY_PAIR" "$FINAL_ZONE"
 echo "✅ 所有实例编排完成 (All AWS instances provisioned and initialized)."
 exit 0
 
