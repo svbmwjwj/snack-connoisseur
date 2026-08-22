@@ -116,7 +116,7 @@ function module_init() {
                     
                     read -p "📁 请输入本地私钥绝对路径 (直接回车默认 $DEFAULT_LOCAL_KEY): " INPUT_PEM
                     local LOCAL_KEY_PATH="${INPUT_PEM:-$DEFAULT_LOCAL_KEY}"
-                    LOCAL_KEY_PATH=$(eval echo "$LOCAL_KEY_PATH")
+                    LOCAL_KEY_PATH="${LOCAL_KEY_PATH/#\~/$HOME}"
 
                     if [ ! -f "$LOCAL_KEY_PATH" ]; then
                         echo "   ❌ 严重错误：指定的私钥文件不存在: $LOCAL_KEY_PATH"
@@ -149,7 +149,7 @@ function module_init() {
                     echo "   ⚠️ 新实例尚未包含此新密钥。我们将使用您现有的临时密钥将其安全注入。"
                     read -p "📁 请输入现有私钥路径 (直接回车尝试使用 SSH Agent 自动注入): " TEMP_PEM
                     if [ -n "$TEMP_PEM" ]; then
-                        eval TEMP_PEM="$TEMP_PEM"
+                        TEMP_PEM="${TEMP_PEM/#\~/$HOME}"
                         ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i "$TEMP_PEM" "$DETECTED_USER@$TARGET_IP" "echo \"$FINAL_PUB_KEY\" >> ~/.ssh/authorized_keys" >/dev/null 2>&1 || true
                     else
                         ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$DETECTED_USER@$TARGET_IP" "echo \"$FINAL_PUB_KEY\" >> ~/.ssh/authorized_keys" >/dev/null 2>&1 || true
@@ -248,13 +248,18 @@ CFG
             echo "✅ ~/.ssh/config 写入初始配置完成！"
         else
             # 为了保证绝对的幂等性，如果以前初始化被中断或重装了机器，强制将 HostName 恢复为纯 IP，并移除被篡改的高危端口和影子用户，恢复出厂设置。
-            python3 -c "
-import sys, re
-config_path = '$HOME/.ssh/config'
-alias = '$SSH_ALIAS'
-ip = '$TARGET_IP'
-user = '$DETECTED_USER'
-identity_line = '$CONFIG_IDENTITY_VAL'
+            export PY_CONFIG_PATH="$HOME/.ssh/config"
+            export PY_ALIAS="$SSH_ALIAS"
+            export PY_IP="$TARGET_IP"
+            export PY_USER="$DETECTED_USER"
+            export PY_IDENTITY_LINE="$CONFIG_IDENTITY_VAL"
+            uv run python3 -c "
+import os, re
+config_path = os.getenv('PY_CONFIG_PATH', '')
+alias = os.getenv('PY_ALIAS', '')
+ip = os.getenv('PY_IP', '')
+user = os.getenv('PY_USER', '')
+identity_line = os.getenv('PY_IDENTITY_LINE', '')
 try:
     with open(config_path, 'r') as f:
         content = f.read()
@@ -306,7 +311,7 @@ except Exception as e:
     local IPV6=$(ssh -o BatchMode=yes "$SSH_ALIAS" "curl -6 -s --connect-timeout 5 ifconfig.me || echo 'none'" || true)
     local IPV6_CIDR="none"
     if [ "$IPV6" != "none" ] && [ -n "$IPV6" ]; then
-        IPV6_CIDR=$(python3 -c "import sys, ipaddress; print(str(ipaddress.IPv6Network(f'{sys.argv[1]}/112', strict=False)))" "$IPV6" 2>/dev/null)
+        IPV6_CIDR=$(uv run python3 -c "import sys, ipaddress; print(str(ipaddress.IPv6Network(f'{sys.argv[1]}/112', strict=False)))" "$IPV6" 2>/dev/null)
         if [ -z "$IPV6_CIDR" ]; then
             local V6_PREFIX=$(echo "$IPV6" | awk -F':' '{print $1":"$2":"$3":"$4}')
             IPV6_CIDR="${V6_PREFIX}::/64"
@@ -381,14 +386,14 @@ except Exception as e:
     local REMOTE_HOME=$(ssh "$SSH_ALIAS" "eval echo ~\$USER")
     local DOCKER_APP_DIR="${REMOTE_HOME}/docker-apps/xray"
     
-    local SCP_OPT=""
-    if [ "$DEBUG_MODE" = "false" ]; then SCP_OPT="-q"; fi
+    local SCP_OPT=()
+    if [ "$DEBUG_MODE" = "false" ]; then SCP_OPT=("-q"); fi
 
     echo "🛡️ 正在装配并同步节点基础组件 (runner/自愈/体检/脱敏凭据)..."
     sync_node_scripts "$SSH_ALIAS" "$IPV4" "$FULL_DOMAIN"
 
-    ssh "$SSH_ALIAS" "[ -f ${DOCKER_APP_DIR}/compose.yml ]" || scp $SCP_OPT templates/compose.yml.template "$SSH_ALIAS":${DOCKER_APP_DIR}/compose.yml
-    ssh "$SSH_ALIAS" "[ -f ${DOCKER_APP_DIR}/conf/config.json ]" || scp $SCP_OPT templates/config.json.template "$SSH_ALIAS":${DOCKER_APP_DIR}/conf/config.json
+    ssh "$SSH_ALIAS" "[ -f ${DOCKER_APP_DIR}/compose.yml ]" || scp "${SCP_OPT[@]}" templates/compose.yml.template "$SSH_ALIAS":${DOCKER_APP_DIR}/compose.yml
+    ssh "$SSH_ALIAS" "[ -f ${DOCKER_APP_DIR}/conf/config.json ]" || scp "${SCP_OPT[@]}" templates/config.json.template "$SSH_ALIAS":${DOCKER_APP_DIR}/conf/config.json
 
     local SHADOW_USER=""
     local NEW_SSH_PORT="22"
@@ -441,7 +446,7 @@ EOF'
     sed -i '' -e "s|PLACEHOLDER_IP|$IPV4|g" -e "s|PLACEHOLDER_ALIAS|$SSH_ALIAS|g" -e "s|/home/admin/docker-apps/xray|${DOCKER_APP_DIR}|g" async_deploy.sh 2>/dev/null || \
     sed -i -e "s|PLACEHOLDER_IP|$IPV4|g" -e "s|PLACEHOLDER_ALIAS|$SSH_ALIAS|g" -e "s|/home/admin/docker-apps/xray|${DOCKER_APP_DIR}|g" async_deploy.sh
     
-    scp $SCP_OPT async_deploy.sh "$SSH_ALIAS":${DOCKER_APP_DIR}/async_deploy.sh
+    scp "${SCP_OPT[@]}" async_deploy.sh "$SSH_ALIAS":${DOCKER_APP_DIR}/async_deploy.sh
     rm -f async_deploy.sh
     
     echo "🎉 [$SSH_ALIAS] 阶段一：服务器基础环境搭建完成，已触发云端 IP 扫描。"

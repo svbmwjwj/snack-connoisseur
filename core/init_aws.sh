@@ -18,12 +18,20 @@ EXTRA_INIT_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --region|-region)
-            REGION="$2"
-            shift 2
+            if [ $# -ge 2 ]; then
+                REGION="$2"
+                shift 2
+            else
+                shift
+            fi
             ;;
         --count|-count)
-            COUNT="$2"
-            shift 2
+            if [ $# -ge 2 ]; then
+                COUNT="$2"
+                shift 2
+            else
+                shift
+            fi
             ;;
         --harden|-harden)
             EXTRA_INIT_ARGS+=("--harden")
@@ -92,72 +100,75 @@ for ((i=1; i<=COUNT; i++)); do
     fi
 done
 
-# 3. 循环调用 uv run providers/aws.py create 拿 IP
+# 3. 循环调用 uv run providers/aws.py create 拿 IP (并行执行)
 for ((i=1; i<=COUNT; i++)); do
-    current_alias="${SSH_ALIAS}"
-    if [ "$COUNT" -gt 1 ]; then
-        current_alias="${SSH_ALIAS}-${i}"
-    fi
-    
-    if [ "$CNSR_LANG" = "en" ]; then
-        echo "☁️ Calling AWS API to create instance [$current_alias] in $REGION ..."
-    else
-        echo "☁️ 正在通过 AWS API 创建实例 [$current_alias] (区域: $REGION)..."
-    fi
-    
-    # 临时禁用 strict 模式以避免 JSON 解析失败时直接退出
-    set +e
-    output=$(uv run providers/aws.py create --alias "$current_alias" --region "$REGION" --count 1 2>&1)
-    status=$?
-    set -e
-    
-    if [ $status -ne 0 ]; then
-        echo "❌ 错误: AWS 实例创建失败 (AWS instance creation failed)"
-        echo "$output"
-        exit 1
-    fi
-    
-    # Try parsing JSON safely
-    ip=$(echo "$output" | grep -o '{"name":' | head -n1 >/dev/null && echo "$output" | python3 -c "
+    (
+        current_alias="${SSH_ALIAS}"
+        if [ "$COUNT" -gt 1 ]; then
+            current_alias="${SSH_ALIAS}-${i}"
+        fi
+        
+        if [ "$CNSR_LANG" = "en" ]; then
+            echo "☁️ Calling AWS API to create instance [$current_alias] in $REGION ..."
+        else
+            echo "☁️ 正在通过 AWS API 创建实例 [$current_alias] (区域: $REGION)..."
+        fi
+        
+        # 临时禁用 strict 模式以避免 JSON 解析失败时直接退出
+        set +e
+        output=$(uv run providers/aws.py create --alias "$current_alias" --region "$REGION" --count 1 2>&1)
+        status=$?
+        set -e
+        
+        if [ $status -ne 0 ]; then
+            echo "❌ 错误: AWS 实例创建失败 (AWS instance creation failed) [$current_alias]"
+            echo "$output"
+            exit 1
+        fi
+        
+        # Parse JSON directly in Python to extract IP
+        ip=$(echo "$output" | uv run python3 -c "
 import sys, json
 try:
     for line in sys.stdin:
         line = line.strip()
-        if line.startswith('{') and 'ip' in line:
-            print(json.loads(line).get('ip', ''))
-            break
-except:
+        if line.startswith('{'):
+            data = json.loads(line)
+            if 'ip' in data:
+                print(data['ip'])
+                break
+except Exception as e:
     pass
 ")
-    
-    if [ -z "$ip" ]; then
-        echo "❌ 错误: 未能获取到新实例的 IP (Failed to get IP for new instance)"
-        echo "Output was: $output"
-        exit 1
-    fi
-    
-    if [ "$CNSR_LANG" = "en" ]; then
-        echo "✅ Instance [$current_alias] created! IP: $ip. Waiting 30s for sshd to start..."
-    else
-        echo "✅ 实例 [$current_alias] 创建成功，IP: $ip，等待云端 SSH 启动 (30秒)..."
-    fi
-    sleep 30
-    
-    # 4. 获取 IP 后内部调用 source core/init.sh 走部署
-    echo "🚀 开始将部署移交至 core/init.sh..."
-    
-    if [ -f "core/init.sh" ]; then
-        (
-            # We must load core/init.sh and call module_init
-            source "core/init.sh"
+        
+        if [ -z "$ip" ]; then
+            echo "❌ 错误: 未能获取到新实例的 IP (Failed to get IP for new instance) [$current_alias]"
+            echo "Output was: $output"
+            exit 1
+        fi
+        
+        if [ "$CNSR_LANG" = "en" ]; then
+            echo "✅ Instance [$current_alias] created! IP: $ip. Waiting 30s for sshd to start..."
+        else
+            echo "✅ 实例 [$current_alias] 创建成功，IP: $ip，等待云端 SSH 启动 (30秒)..."
+        fi
+        sleep 30
+        
+        # 4. 获取 IP 后内部调用 source core/init.sh 走部署
+        echo "🚀 开始将部署移交至 core/init.sh... [$current_alias]"
+        
+        if [ -f "$SCRIPT_DIR/init.sh" ]; then
+            source "$SCRIPT_DIR/init.sh"
             SSH_ALIAS="$current_alias"
             TARGET_IP="$ip"
             module_init "${EXTRA_INIT_ARGS[@]}"
-        )
-    else
-        echo "❌ 错误: 找不到 core/init.sh (core/init.sh not found)"
-        exit 1
-    fi
+        else
+            echo "❌ 错误: 找不到 core/init.sh (core/init.sh not found)"
+            exit 1
+        fi
+    ) &
 done
 
+wait
+echo "✅ 所有实例编排完成 (All AWS instances provisioned and initialized)."
 exit 0
