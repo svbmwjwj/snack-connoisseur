@@ -19,6 +19,7 @@ __pycache__/
 # Environment & Log files
 .env
 *.log
+logs/
 .DS_Store
 scratch/
 

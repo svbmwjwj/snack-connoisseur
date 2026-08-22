@@ -322,6 +322,9 @@ function provision_batch_group() {
         exit 1
     fi
 
+    # 确保日志目录存在
+    mkdir -p "logs"
+
     # 防重检查: 遍历 count，检测 ~/.ssh/config 冲突
     for ((i=1; i<=grp_count; i++)); do
         local cur_alias="${grp_alias}"
