@@ -118,6 +118,7 @@ do_ping() {
 declare -A IPs=(
     [out_cf]="1.1.1.1" [out_gg]="8.8.8.8"
     [in_ali]="223.5.5.5" [in_tx]="119.29.29.29"
+    [in_bd]="180.76.76.76" [in_ct]="202.96.128.86"
 )
 for k in "${!IPs[@]}"; do do_ping "${IPs[$k]}" "$k"; done
 wait
@@ -127,12 +128,16 @@ get_p() { cat "/tmp/ping_$1" 2>/dev/null || echo "Timeout"; }
 
 IN_ALI=$(get_p in_ali)
 IN_TX=$(get_p in_tx)
+IN_BD=$(get_p in_bd)
+IN_CT=$(get_p in_ct)
 OUT_CF=$(get_p out_cf)
 OUT_GG=$(get_p out_gg)
 
 IN_TIMEOUTS=0
 [ "$IN_ALI" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
 [ "$IN_TX" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
+[ "$IN_BD" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
+[ "$IN_CT" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
 
 OUT_TIMEOUTS=0
 [ "$OUT_CF" = "Timeout" ] && ((OUT_TIMEOUTS++)) || true
@@ -142,6 +147,8 @@ if [ "$CNSR_LANG" = "en" ]; then
 PING_REPORT="🇨🇳 *China Inbound (BGP / Backbone)*
 - *Ali BGP*: ${IN_ALI}
 - *Tencent BGP*: ${IN_TX}
+- *Baidu BGP*: ${IN_BD}
+- *Telecom Backbone*: ${IN_CT}
 
 🌐 *Global Outbound Connectivity*
 - *Google DNS (8.8.8.8)*: ${OUT_GG}
@@ -150,6 +157,8 @@ else
 PING_REPORT="🇨🇳 *入站国内回程 (BGP / 骨干链路)*
 - 阿里 BGP: ${IN_ALI}
 - 腾讯 BGP: ${IN_TX}
+- 百度 BGP: ${IN_BD}
+- 电信骨干: ${IN_CT}
 
 🌐 *出站海外访问能力 (Global Outbound)*
 - Google DNS (8.8.8.8): ${OUT_GG}
@@ -158,6 +167,8 @@ fi
 
 echo "   - [Inbound] 阿里 BGP: ${IN_ALI}"
 echo "   - [Inbound] 腾讯 BGP: ${IN_TX}"
+echo "   - [Inbound] 百度 BGP: ${IN_BD}"
+echo "   - [Inbound] 电信骨干: ${IN_CT}"
 echo "   - [Outbound] Google DNS: ${OUT_GG}"
 echo "   - [Outbound] Cloudflare: ${OUT_CF}"
 
@@ -330,7 +341,7 @@ if [[ "$DOMAIN_STATUS" == *"🔴"* ]] || [[ "$CONTAINER_STATUS" == *"N/A"* ]] ||
     CONCLUSION="🔴 Error (Service/DNS/SNI)"
 elif [ "$OUT_TIMEOUTS" -eq 2 ]; then
     CONCLUSION="🔴 Error (Outbound Disconnected)"
-elif [ "$IN_TIMEOUTS" -ge 2 ]; then
+elif [ "$IN_TIMEOUTS" -ge 3 ]; then
     CONCLUSION="🔴 Error (China Inbound Blocked)"
 elif [[ "$DOMAIN_STATUS" == *"🟡"* ]] || [[ "$TFO_STATUS" == *"🟡"* ]] || [ "$OUT_TIMEOUTS" -gt 0 ] || [ "$IN_TIMEOUTS" -gt 0 ]; then
     CONCLUSION="🟡 Warning (Suboptimal / Incomplete)"
