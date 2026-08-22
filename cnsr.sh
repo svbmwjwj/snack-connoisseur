@@ -82,6 +82,10 @@ case "$COMMAND" in
         source core/update.sh
         module_update "$ALIAS" "$@"
         ;;
+    link|links)
+        source core/link.sh
+        module_link "$ALIAS" "$@"
+        ;;
     rotate-sni)
         source core/rotate.sh
         module_rotate_sni "$ALIAS" "$@"

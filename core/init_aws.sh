@@ -398,10 +398,16 @@ function provision_batch_group() {
         RESOLVED_KEY_FILE="$BATCH_KEY_PUB"
     fi
 
+    # 预生成全链路唯一的任务时间戳/编号
+    local BATCH_TS=$(date +'%Y-%m-%d %H:%M:%S')
+    local BATCH_ID=$(date +'%Y%m%d%H%M%S')
+
     # Stage 1: 批量开机通知 (清晰独立字段)
     if [ "$CNSR_DETACHED_CHILD" != "1" ]; then
         local tpl_name="${CONFIG_INPUT:-$grp_alias}"
-        send_batch_tg_notify "🚀 *[Snack] AWS 批量编排任务启动*
+        send_batch_tg_notify "🚀 *AWS 批量编排任务启动*
+• *任务编号*: \`${BATCH_ID}\`
+• *启动时间*: \`${BATCH_TS}\`
 • *任务模版*: \`${tpl_name}\`
 • *节点数量*: \`${grp_count}\` 台 (\`${grp_alias}-1\` ~ \`${grp_count}\`)
 • *目标区域*: \`${grp_region}\`
@@ -540,7 +546,8 @@ for n in nodes:
 ")
 
     # Stage 2: 统一汇总就绪看板
-    send_batch_tg_notify "☁️ *[Snack] AWS 批量实例就绪看板* ($created_count/$grp_count)
+    send_batch_tg_notify "☁️ *AWS 批量实例就绪看板* ($created_count/$grp_count)
+• *任务编号*: \`${BATCH_ID}\`
 • *目标区域*: \`${grp_region}\`
 • *可用区分布统计*:
 $AZ_TEXT
@@ -619,13 +626,14 @@ $NODES_TEXT
     local done_count=$(ls -1 "$BATCH_TMP_DIR"/*.done 2>/dev/null | wc -l | xargs)
 
     # Stage 3: 最终完工总览
-    send_batch_tg_notify "🎉 *[Snack] AWS 批量部署全部完成* ($done_count/$grp_count)
+    send_batch_tg_notify "🎉 *AWS 批量部署全部完成* ($done_count/$grp_count)
+• *任务编号*: \`${BATCH_ID}\`
 • *任务模版*: \`${CONFIG_INPUT:-$grp_alias}\`
 • *部署结果*: $done_count 台全部成功
 • *目标区域*: \`${grp_region}\`
 • *本地凭据*: 已全部写入 \`~/.ssh/config\`
 • *云端体检*: GitHub Actions 扫描已全量触发
-💡 节点集群已自治进入 15 分钟自动化轮换与自愈生命周期。"
+💡 节点集群已自治进入 15 分钟自动化轮换与自愈生命周期。您可通过 \`./cnsr.sh link ${grp_alias}-*\` 一键提取节点订阅代码。"
 
     rm -rf "$BATCH_TMP_DIR"
 }
