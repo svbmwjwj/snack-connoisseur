@@ -517,12 +517,12 @@ except Exception as e:
         "
     fi
 
-    # 统一安装启动 Docker 与 内核优化
+    # 统一安装启动 Docker 与 内核优化 (带超时熔断与 apt 自动降级)
     echo "🐳 启动 X-ray 服务与定时自愈探针..."
     ssh "$SSH_ALIAS" "
       set -e
       if ! command -v docker >/dev/null 2>&1; then
-          curl -fsSL https://get.docker.com | sudo sh >/dev/null 2>&1
+          curl -fsSL --connect-timeout 10 --max-time 60 https://get.docker.com | timeout 90 sudo sh >/dev/null 2>&1 || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 >/dev/null 2>&1 || true
       fi
       
       # 内核网络优化 (BBR + TCP Fast Open 3)
@@ -534,10 +534,15 @@ EOF'
       sudo sysctl --system >/dev/null 2>&1 || true
 
       cd ${DOCKER_APP_DIR}
-      sudo docker compose up -d >/dev/null 2>&1
+      sudo docker compose up -d >/dev/null 2>&1 || true
       if ! command -v crontab >/dev/null 2>&1; then if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y cron; fi; fi
       (sudo -u \$(whoami) crontab -l 2>/dev/null | grep -v -E 'reality_rotate.sh|runner.sh'; echo '*/15 * * * * ${DOCKER_APP_DIR}/runner.sh > ${DOCKER_APP_DIR}/rotate.log 2>&1') | sudo -u \$(whoami) crontab -
     "
+
+    # 执行主机防火墙策略 (UFW 规则与双栈联动)
+    if declare -f apply_host_firewall >/dev/null 2>&1; then
+        apply_host_firewall "$SSH_ALIAS" "${CFG_HOST_FIREWALL:-ufw}" "${CFG_IP_STACK:-dual}" "${CFG_PORTS_TCP:-22,443}" "${CFG_PORTS_UDP:-443}" "$NEW_SSH_PORT"
+    fi
     
     echo "🚀 正在部署异步守护进程，接管后续的配置与测试..."
     cp templates/async_deploy.template.sh async_deploy.sh

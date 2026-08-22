@@ -436,6 +436,9 @@ function provision_batch_group() {
             local extra_py_args=()
             if [ -n "$grp_key_pair" ]; then extra_py_args+=(--key-pair "$grp_key_pair"); fi
             if [ -n "$grp_zone" ]; then extra_py_args+=(--zone "$grp_zone"); fi
+            if [ "${T_CLOUD_FIREWALL_SYNC:-true}" = "true" ]; then
+                extra_py_args+=(--ports-tcp "${T_PORTS_TCP:-22,443}" --ports-udp "${T_PORTS_UDP:-443}")
+            fi
             
             echo "☁️ [$current_alias] 正在通过 AWS API 创建实例 (区域: $grp_region, 规格: $grp_bundle, 镜像: $grp_blueprint)..."
             local py_out
@@ -576,6 +579,10 @@ $NODES_TEXT
                     exec > "logs/init_worker_${current_alias}.log" 2>&1
                 fi
                 export BATCH_MODE=true
+                export CFG_HOST_FIREWALL="${T_HOST_FIREWALL:-ufw}"
+                export CFG_IP_STACK="${T_IP_STACK:-dual}"
+                export CFG_PORTS_TCP="${T_PORTS_TCP:-22,443}"
+                export CFG_PORTS_UDP="${T_PORTS_UDP:-443}"
                 source "$SCRIPT_DIR/init.sh"
                 SSH_ALIAS="$current_alias"
                 TARGET_IP="$current_ip"
@@ -594,6 +601,7 @@ $NODES_TEXT
     done
 
     if [ "$DEBUG_MODE" != "true" ]; then
+        local timeout_limit=180
         while true; do
             local p2_done=$(ls -1 "$BATCH_TMP_DIR"/*.done 2>/dev/null | wc -l | xargs)
             local p2_err=$(ls -1 "$BATCH_TMP_DIR"/*.err 2>/dev/null | wc -l | xargs)
@@ -603,6 +611,17 @@ $NODES_TEXT
             local current_elapsed=$((now - start_time_p2))
             render_bar_line "$p2_total_finished" "$created_count" "节点基础环境装配中..." 32 "$current_elapsed"
             if [ "$p2_total_finished" -ge "$created_count" ]; then
+                break
+            fi
+            # 托底熔断保护: 单批次超过 180 秒，将尚未完成的节点标记为超时并释放主线程
+            if [ "$current_elapsed" -ge "$timeout_limit" ]; then
+                for ((i=1; i<=grp_count; i++)); do
+                    local chk_alias="${grp_alias}"
+                    [ "$grp_count" -gt 1 ] && chk_alias="${grp_alias}-${i}"
+                    if [ ! -f "${BATCH_TMP_DIR}/${chk_alias}.done" ] && [ ! -f "${BATCH_TMP_DIR}/${chk_alias}.err" ]; then
+                        echo "timeout" > "${BATCH_TMP_DIR}/${chk_alias}.err"
+                    fi
+                done
                 break
             fi
             sleep 0.15
@@ -616,7 +635,7 @@ $NODES_TEXT
             for err_file in "$BATCH_TMP_DIR"/*.err; do
                 [ -f "$err_file" ] || continue
                 local err_alias=$(basename "$err_file" .err)
-                echo "⚠️ 节点 ${err_alias} 装配失败，排查日志: logs/init_worker_${err_alias}.log"
+                echo "⚠️ 节点 ${err_alias} 装配异常/超时，排查日志: logs/init_worker_${err_alias}.log"
             done
         fi
     else
@@ -667,6 +686,12 @@ if [ -n "$CONFIG_INPUT" ]; then
         T_BLUEPRINT="debian_12"
         T_KEY_PAIR=""
         T_COUNT=1
+        T_SECURITY_PROFILE="strict"
+        T_IP_STACK="dual"
+        T_PORTS_TCP="22, 443"
+        T_PORTS_UDP="443"
+        T_CLOUD_FIREWALL_SYNC="true"
+        T_HOST_FIREWALL="ufw"
 
         # 读取模版变量
         while IFS='=' read -r key val || [ -n "$key" ]; do
@@ -680,6 +705,12 @@ if [ -n "$CONFIG_INPUT" ]; then
                 BLUEPRINT) T_BLUEPRINT="$val" ;;
                 KEY_PAIR|KEY) T_KEY_PAIR="$val" ;;
                 COUNT) T_COUNT="$val" ;;
+                SECURITY_PROFILE) T_SECURITY_PROFILE="$val" ;;
+                IP_STACK) T_IP_STACK="$val" ;;
+                PORTS_TCP) T_PORTS_TCP="$val" ;;
+                PORTS_UDP) T_PORTS_UDP="$val" ;;
+                CLOUD_FIREWALL_SYNC) T_CLOUD_FIREWALL_SYNC="$val" ;;
+                HOST_FIREWALL) T_HOST_FIREWALL="$val" ;;
             esac
         done < "$RESOLVED_CONF"
 

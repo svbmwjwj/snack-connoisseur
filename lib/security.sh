@@ -40,6 +40,69 @@ function sanitize_env_for_node() {
     fi
 }
 
+function apply_host_firewall() {
+    local alias="$1"
+    local engine="${2:-ufw}"
+    local ip_stack="${3:-dual}"
+    local ports_tcp="${4:-22,443}"
+    local ports_udp="${5:-443}"
+    local current_ssh_port="${6:-22}"
+
+    if [ -z "$alias" ]; then
+        return 0
+    fi
+
+    if [ "$engine" = "none" ] || [ "$engine" = "false" ]; then
+        return 0
+    fi
+
+    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    if [ -f "$SSH_CONFIG_PATH" ]; then
+        ssh_opts+=(-F "$SSH_CONFIG_PATH")
+    fi
+
+    if [ "$engine" = "ufw" ]; then
+        echo "🛡️ 正在为节点 [$alias] 配置 UFW 主机防火墙与双栈规则 (TCP: $ports_tcp, UDP: $ports_udp)..."
+        ssh "${ssh_opts[@]}" "$alias" "
+            set -e
+            if ! command -v ufw >/dev/null 2>&1; then
+                sudo apt-get update -y >/dev/null 2>&1 && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ufw >/dev/null 2>&1 || true
+            fi
+            if command -v ufw >/dev/null 2>&1; then
+                sudo ufw --force reset >/dev/null 2>&1 || true
+                sudo ufw default deny incoming >/dev/null 2>&1
+                sudo ufw default allow outgoing >/dev/null 2>&1
+                
+                # 双栈 IPv6 支持
+                if [ '$ip_stack' = 'ipv4' ]; then
+                    sudo sed -i 's/^IPV6=.*/IPV6=no/' /etc/default/ufw 2>/dev/null || true
+                else
+                    sudo sed -i 's/^IPV6=.*/IPV6=yes/' /etc/default/ufw 2>/dev/null || true
+                fi
+
+                # 放行当前 SSH 端口（防断连兜底）
+                sudo ufw allow ${current_ssh_port}/tcp >/dev/null 2>&1 || true
+
+                # 放行 TCP 白名单
+                IFS=',' read -ra TCP_ARR <<< '$ports_tcp'
+                for p in \"\${TCP_ARR[@]}\"; do
+                    p=\$(echo \"\$p\" | tr -d '[:space:]')
+                    [ -n \"\$p\" ] && sudo ufw allow \"\${p}/tcp\" >/dev/null 2>&1 || true
+                done
+
+                # 放行 UDP 白名单
+                IFS=',' read -ra UDP_ARR <<< '$ports_udp'
+                for p in \"\${UDP_ARR[@]}\"; do
+                    p=\$(echo \"\$p\" | tr -d '[:space:]')
+                    [ -n \"\$p\" ] && sudo ufw allow \"\${p}/udp\" >/dev/null 2>&1 || true
+                done
+
+                sudo ufw --force enable >/dev/null 2>&1 || true
+            fi
+        " || true
+    fi
+}
+
 function module_harden_system() {
     local alias="$1"
     local ip="$2"

@@ -164,6 +164,28 @@ def create_instance(args=None, **kwargs):
             time.sleep(2)
             
         zone_name = inst.get("location", {}).get("availabilityZone", "")
+        
+        # 同步云端防火墙规则 (若指定端口)
+        ports_tcp = getattr(args, 'ports_tcp', kwargs.get('ports_tcp', None)) if args is not None else kwargs.get('ports_tcp', None)
+        ports_udp = getattr(args, 'ports_udp', kwargs.get('ports_udp', None)) if args is not None else kwargs.get('ports_udp', None)
+        if ports_tcp or ports_udp:
+            port_infos = []
+            if ports_tcp:
+                for p in str(ports_tcp).split(","):
+                    p = p.strip()
+                    if p:
+                        port_infos.append({"fromPort": int(p), "toPort": int(p), "protocol": "tcp"})
+            if ports_udp:
+                for p in str(ports_udp).split(","):
+                    p = p.strip()
+                    if p:
+                        port_infos.append({"fromPort": int(p), "toPort": int(p), "protocol": "udp"})
+            if port_infos:
+                try:
+                    client.put_instance_public_ports(instanceName=name, portInfos=port_infos)
+                except Exception:
+                    pass
+
         results.append({
             "name": name,
             "ip": ip,
@@ -325,8 +347,47 @@ def open_port(args=None, **kwargs):
         instanceName=instance_name,
         portInfo=port_info
     )
-    
     return {"status": "success"}
+
+def sync_firewall(args=None, **kwargs):
+    if args is not None:
+        instance_name = getattr(args, 'alias', None)
+        region = getattr(args, 'region', None)
+        ports_tcp_raw = getattr(args, 'ports_tcp', None)
+        ports_udp_raw = getattr(args, 'ports_udp', None)
+    else:
+        instance_name = kwargs.get("instance_name", kwargs.get("alias"))
+        region = kwargs.get("region")
+        ports_tcp_raw = kwargs.get("ports_tcp")
+        ports_udp_raw = kwargs.get("ports_udp")
+
+    region = validate_region(region)
+    client = boto3.client("lightsail", region_name=region)
+
+    port_infos = []
+    if ports_tcp_raw:
+        for p in str(ports_tcp_raw).split(","):
+            p = p.strip()
+            if p:
+                port_infos.append({"fromPort": int(p), "toPort": int(p), "protocol": "tcp"})
+    if ports_udp_raw:
+        for p in str(ports_udp_raw).split(","):
+            p = p.strip()
+            if p:
+                port_infos.append({"fromPort": int(p), "toPort": int(p), "protocol": "udp"})
+
+    if not port_infos:
+        port_infos = [
+            {"fromPort": 22, "toPort": 22, "protocol": "tcp"},
+            {"fromPort": 443, "toPort": 443, "protocol": "tcp"},
+            {"fromPort": 443, "toPort": 443, "protocol": "udp"}
+        ]
+
+    client.put_instance_public_ports(
+        instanceName=instance_name,
+        portInfos=port_infos
+    )
+    return {"status": "success", "instance": instance_name, "ports": port_infos}
 
 def main(cli_args=None):
     if cli_args is None:
@@ -343,6 +404,8 @@ def main(cli_args=None):
     create_parser.add_argument("--bundle", "--bundle-id", dest="bundle", default="nano_3_0")
     create_parser.add_argument("--blueprint", "--blueprint-id", dest="blueprint", default="debian_12")
     create_parser.add_argument("--key", "--key-pair", "--key-pair-name", dest="key_pair_name", default=None)
+    create_parser.add_argument("--ports-tcp", dest="ports_tcp", default=None)
+    create_parser.add_argument("--ports-udp", dest="ports_udp", default=None)
     
     delete_parser = subparsers.add_parser("delete")
     delete_parser.add_argument("--alias", required=True)
@@ -356,6 +419,12 @@ def main(cli_args=None):
     port_parser.add_argument("--alias", required=True)
     port_parser.add_argument("--region", required=True)
     port_parser.add_argument("--port", required=True, type=int)
+
+    sync_fw_parser = subparsers.add_parser("sync-firewall")
+    sync_fw_parser.add_argument("--alias", required=True)
+    sync_fw_parser.add_argument("--region", required=True)
+    sync_fw_parser.add_argument("--ports-tcp", dest="ports_tcp", default=None)
+    sync_fw_parser.add_argument("--ports-udp", dest="ports_udp", default=None)
     
     parsed = parser.parse_args(cli_args)
     
@@ -373,6 +442,10 @@ def main(cli_args=None):
         return 0
     elif parsed.command == "open-port":
         res = open_port(args=parsed)
+        print(json.dumps(res))
+        return 0
+    elif parsed.command == "sync-firewall":
+        res = sync_firewall(args=parsed)
         print(json.dumps(res))
         return 0
         
