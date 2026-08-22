@@ -409,7 +409,10 @@ function provision_batch_group() {
     local BATCH_TMP_DIR=$(mktemp -d)
 
     # Phase 1: 并发调用 AWS API 创建实例并收集 IP 与 Zone
-    echo "☁️ 正在批量调用 AWS API 创建 $grp_count 台实例..."
+    if [ "$DEBUG_MODE" = "true" ]; then
+        echo "☁️ 正在批量调用 AWS API 创建 $grp_count 台实例..."
+    fi
+    local start_time_p1=$(date +%s)
     for ((i=1; i<=grp_count; i++)); do
         local current_alias="${grp_alias}"
         if [ "$grp_count" -gt 1 ]; then
@@ -417,6 +420,10 @@ function provision_batch_group() {
         fi
         
         (
+            if [ "$DEBUG_MODE" != "true" ]; then
+                exec > "logs/init_aws_${current_alias}.log" 2>&1
+            fi
+            
             local extra_py_args=()
             if [ -n "$grp_key_pair" ]; then extra_py_args+=(--key-pair "$grp_key_pair"); fi
             if [ -n "$grp_zone" ]; then extra_py_args+=(--zone "$grp_zone"); fi
@@ -429,6 +436,7 @@ function provision_batch_group() {
             if [ $status -ne 0 ]; then
                 echo "❌ 错误: AWS 实例创建失败 [$current_alias]"
                 echo "$py_out"
+                echo "err" > "${BATCH_TMP_DIR}/${current_alias}_aws.err"
             else
                 uv run python3 -c "
 import sys, json
@@ -444,10 +452,31 @@ try:
 except Exception:
     pass
 " <<< "$py_out"
+                if [ ! -f "${BATCH_TMP_DIR}/${current_alias}.json" ]; then
+                    echo "err" > "${BATCH_TMP_DIR}/${current_alias}_aws.err"
+                fi
             fi
         ) &
     done
-    wait
+
+    if [ "$DEBUG_MODE" != "true" ]; then
+        while true; do
+            local p1_done=$(ls -1 "$BATCH_TMP_DIR"/*.json 2>/dev/null | wc -l | xargs)
+            local p1_err=$(ls -1 "$BATCH_TMP_DIR"/*_aws.err 2>/dev/null | wc -l | xargs)
+            local p1_total_finished=$((p1_done + p1_err))
+            
+            render_bar_line "$p1_total_finished" "$grp_count" "实例创建与公网 IP 分配中..." 32
+            if [ "$p1_total_finished" -ge "$grp_count" ]; then
+                break
+            fi
+            sleep 0.5
+        done
+        local end_time_p1=$(date +%s)
+        local elapsed_p1=$((end_time_p1 - start_time_p1))
+        render_bar_done "1/2" "AWS 实例创建与多可用区 IP 就绪" "$p1_done" "$elapsed_p1"
+    else
+        wait
+    fi
 
     local created_count=$(ls -1 "$BATCH_TMP_DIR"/*.json 2>/dev/null | wc -l | xargs)
     if [ "$created_count" -eq 0 ]; then
@@ -517,7 +546,10 @@ $NODES_TEXT
 ⚙️ 正在并行连接各节点装配基础环境与 X-ray 服务..."
 
     # Phase 2: 并行向各机器装配基础环境 (core/init.sh)
-    echo "⚙️ 正在并行向 $created_count 台机器装配基础环境与组件..."
+    if [ "$DEBUG_MODE" = "true" ]; then
+        echo "⚙️ 正在并行向 $created_count 台机器装配基础环境与组件..."
+    fi
+    local start_time_p2=$(date +%s)
     for ((i=1; i<=grp_count; i++)); do
         local current_alias="${grp_alias}"
         if [ "$grp_count" -gt 1 ]; then
@@ -528,6 +560,9 @@ $NODES_TEXT
         if [ -f "$info_file" ]; then
             local current_ip=$(uv run python3 -c "import json; print(json.load(open('$info_file')).get('ip', ''))")
             (
+                if [ "$DEBUG_MODE" != "true" ]; then
+                    exec > "logs/init_worker_${current_alias}.log" 2>&1
+                fi
                 source "$SCRIPT_DIR/init.sh"
                 SSH_ALIAS="$current_alias"
                 TARGET_IP="$current_ip"
@@ -536,12 +571,42 @@ $NODES_TEXT
                 if [ -n "$RESOLVED_USER" ]; then init_pass_args+=(-u "$RESOLVED_USER"); fi
                 if [ -n "$RESOLVED_KEY_FILE" ]; then init_pass_args+=(--identity-file "$RESOLVED_KEY_FILE"); fi
                 if [ -n "$RESOLVED_KEY" ]; then init_pass_args+=(--key "$RESOLVED_KEY"); fi
-                module_init "${init_pass_args[@]}" "${EXTRA_INIT_ARGS[@]}"
-                echo "done" > "${BATCH_TMP_DIR}/${current_alias}.done"
+                if module_init "${init_pass_args[@]}" "${EXTRA_INIT_ARGS[@]}"; then
+                    echo "done" > "${BATCH_TMP_DIR}/${current_alias}.done"
+                else
+                    echo "err" > "${BATCH_TMP_DIR}/${current_alias}.err"
+                fi
             ) &
         fi
     done
-    wait
+
+    if [ "$DEBUG_MODE" != "true" ]; then
+        while true; do
+            local p2_done=$(ls -1 "$BATCH_TMP_DIR"/*.done 2>/dev/null | wc -l | xargs)
+            local p2_err=$(ls -1 "$BATCH_TMP_DIR"/*.err 2>/dev/null | wc -l | xargs)
+            local p2_total_finished=$((p2_done + p2_err))
+            
+            render_bar_line "$p2_total_finished" "$created_count" "节点基础环境装配中..." 32
+            if [ "$p2_total_finished" -ge "$created_count" ]; then
+                break
+            fi
+            sleep 0.5
+        done
+        local end_time_p2=$(date +%s)
+        local elapsed_p2=$((end_time_p2 - start_time_p2))
+        render_bar_done "2/2" "节点基础环境装配完成" "$p2_done" "$elapsed_p2"
+        echo ""
+        
+        if [ "$p2_err" -gt 0 ]; then
+            for err_file in "$BATCH_TMP_DIR"/*.err; do
+                [ -f "$err_file" ] || continue
+                local err_alias=$(basename "$err_file" .err)
+                echo "⚠️ 节点 ${err_alias} 装配失败，排查日志: logs/init_worker_${err_alias}.log"
+            done
+        fi
+    else
+        wait
+    fi
 
     local done_count=$(ls -1 "$BATCH_TMP_DIR"/*.done 2>/dev/null | wc -l | xargs)
 

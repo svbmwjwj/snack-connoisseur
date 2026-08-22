@@ -164,3 +164,33 @@ function select_menu() {
     tput cnorm 2>/dev/null || printf "\033[?25h"
     MENU_CHOICE=$((cur + 1))
 }
+
+# 动态重绘进度条辅助函数 (Homebrew 风格)
+function render_bar_line() {
+    local current="$1"
+    local total="$2"
+    local suffix="${3:-}"
+    local bar_width="${4:-32}"
+
+    if [ "$total" -le 0 ]; then total=1; fi
+    if [ "$current" -gt "$total" ]; then current="$total"; fi
+
+    local percent=$((current * 100 / total))
+    local filled=$((current * bar_width / total))
+    local unfilled=$((bar_width - filled))
+
+    local bar=""
+    for ((i=0; i<filled; i++)); do bar+="█"; done
+    for ((i=0; i<unfilled; i++)); do bar+="░"; done
+
+    printf "\r\033[2K    [\033[36m%s\033[0m] %d/%d (%d%%) %s" "$bar" "$current" "$total" "$percent" "$suffix"
+}
+
+# 进度条固化完成行
+function render_bar_done() {
+    local step="$1"
+    local summary="$2"
+    local total="$3"
+    local duration="$4"
+    printf "\r\033[2K\033[32m✔\033[0m [%s] %s (%d/%d) [耗时: %ds]\n" "$step" "$summary" "$total" "$total" "$duration"
+}
