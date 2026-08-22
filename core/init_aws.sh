@@ -375,7 +375,7 @@ if [ -n "$CONFIG_INPUT" ]; then
         # 读取模版变量
         while IFS='=' read -r key val || [ -n "$key" ]; do
             key=$(echo "$key" | tr -d '[:space:]')
-            val=$(echo "$val" | sed -e 's/^[[:space:]]*["'"'"']//' -e 's/["'"'"'][[:space:]]*$//' -e 's/#.*//' | tr -d '\r')
+            val=$(echo "$val" | sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//' | tr -d '\r')
             case "$key" in
                 REGION) T_REGION="$val" ;;
                 ALIAS) T_ALIAS="$val" ;;

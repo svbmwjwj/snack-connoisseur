@@ -4,6 +4,17 @@ import fnmatch
 import json
 import uuid
 import sys
+import re
+
+def _normalize_region(region):
+    if not region:
+        return region
+    region = str(region).strip()
+    m = re.match(r'^([a-z]+-[a-z]+-\d+)[a-z]$', region)
+    if m:
+        return m.group(1)
+    return region
+
 
 def create_instance(args=None, **kwargs):
     if args is not None:
@@ -23,6 +34,7 @@ def create_instance(args=None, **kwargs):
         user_data = kwargs.get("user_data")
         key_pair_name = kwargs.get("key_pair_name")
 
+    region = _normalize_region(region)
     client = boto3.client("lightsail", region_name=region)
     
     # Format instance names based on count
@@ -88,6 +100,7 @@ def delete_instance(args=None, **kwargs):
     if not pattern:
         raise ValueError("Missing instance name or pattern to delete")
 
+    region = _normalize_region(region)
     client = boto3.client("lightsail", region_name=region)
     
     # Find all instances matching pattern
@@ -145,6 +158,7 @@ def rotate_ip(args=None, **kwargs):
         region = kwargs.get("region")
         current_ip = kwargs.get("current_ip")
         
+    region = _normalize_region(region)
     client = boto3.client("lightsail", region_name=region)
     
     if not instance_name and current_ip:
