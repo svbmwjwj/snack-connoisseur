@@ -271,5 +271,126 @@ fi
         self.assertIn(f"-F {self.test_ssh_config}", ssh_log)
         self.assertIn("-o ConnectTimeout=2", ssh_log)
 
+    def test_hyphenated_alias_isolation(self):
+        """Aliases with hyphens must not cross-match (e.g. my-node vs my-node-backup)."""
+        with open(self.test_ssh_config, "w") as f:
+            f.write("""Host my-node-backup
+    HostName 10.0.0.1
+    User backupuser
+
+Host my-node
+    HostName 10.0.0.2
+    User primaryuser
+""")
+
+        # 1. get_ssh_config on my-node vs my-node-backup
+        cmd_get1 = f"""
+        export TEST_SSH_CONFIG="{self.test_ssh_config}"
+        source "{self.ssh_sh}"
+        get_ssh_config "my-node" "HostName"
+        """
+        res1 = subprocess.run(["bash", "-c", cmd_get1], capture_output=True, text=True)
+        self.assertEqual(res1.returncode, 0)
+        self.assertEqual(res1.stdout.strip(), "10.0.0.2")
+
+        cmd_get2 = f"""
+        export TEST_SSH_CONFIG="{self.test_ssh_config}"
+        source "{self.ssh_sh}"
+        get_ssh_config "my-node-backup" "HostName"
+        """
+        res2 = subprocess.run(["bash", "-c", cmd_get2], capture_output=True, text=True)
+        self.assertEqual(res2.returncode, 0)
+        self.assertEqual(res2.stdout.strip(), "10.0.0.1")
+
+        # 2. ensure_ssh_alias updating my-node must not touch my-node-backup
+        cmd_update = f"""
+        export TEST_SSH_CONFIG="{self.test_ssh_config}"
+        source "{self.ssh_sh}"
+        ensure_ssh_alias "my-node" "10.0.0.99" "newuser" "22"
+        """
+        res_up = subprocess.run(["bash", "-c", cmd_update], capture_output=True, text=True)
+        self.assertEqual(res_up.returncode, 0)
+
+        with open(self.test_ssh_config, "r") as f:
+            content = f.read()
+
+        self.assertIn("Host my-node-backup\n    HostName 10.0.0.1\n    User backupuser", content)
+        self.assertIn("Host my-node\n    HostName 10.0.0.99\n    User newuser", content)
+
+    def test_upgrade_ssh_config_hostname_isolation(self):
+        """upgrade_ssh_config_hostname must only modify target host even if target has no HostName and other hosts follow."""
+        with open(self.test_ssh_config, "w") as f:
+            f.write("""Host target-node
+    User targetuser
+
+Host other-node
+    HostName 10.0.0.50
+    User otheruser
+""")
+
+        cmd = f"""
+        export TEST_SSH_CONFIG="{self.test_ssh_config}"
+        source "{self.ssh_sh}"
+        upgrade_ssh_config_hostname "target-node" "localhost"
+        """
+        res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0)
+
+        with open(self.test_ssh_config, "r") as f:
+            content = f.read()
+
+        # target-node should now have HostName localhost
+        self.assertIn("Host target-node\n    HostName localhost\n    User targetuser", content)
+        # other-node must remain untouched with 10.0.0.50
+        self.assertIn("Host other-node\n    HostName 10.0.0.50", content)
+
+    def test_ensure_ssh_alias_global_option_scoping(self):
+        """ensure_ssh_alias should add IdentitiesOnly if only another host has it, but omit if Host * has it."""
+        # 1. Config with another specific host having IdentitiesOnly
+        with open(self.test_ssh_config, "w") as f:
+            f.write("""Host other-host
+    HostName 10.0.0.1
+    User other
+    IdentityFile ~/.ssh/other.key
+    IdentitiesOnly yes
+""")
+
+        cmd1 = f"""
+        export TEST_SSH_CONFIG="{self.test_ssh_config}"
+        source "{self.ssh_sh}"
+        ensure_ssh_alias "new-host" "10.0.0.2" "admin" "22" "~/.ssh/new.key"
+        """
+        subprocess.run(["bash", "-c", cmd1], check=True)
+
+        with open(self.test_ssh_config, "r") as f:
+            content1 = f.read()
+
+        # new-host MUST have IdentitiesOnly yes because other-host having it is not global
+        self.assertIn("Host new-host", content1)
+        self.assertIn("IdentitiesOnly yes", content1.split("Host new-host")[1])
+
+        # 2. Config with global Host * having IdentitiesOnly
+        with open(self.test_ssh_config, "w") as f:
+            f.write("""Host *
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+""")
+
+        cmd2 = f"""
+        export TEST_SSH_CONFIG="{self.test_ssh_config}"
+        source "{self.ssh_sh}"
+        ensure_ssh_alias "global-tested" "10.0.0.3" "admin" "22" "~/.ssh/g.key"
+        """
+        subprocess.run(["bash", "-c", cmd2], check=True)
+
+        with open(self.test_ssh_config, "r") as f:
+            content2 = f.read()
+
+        # global-tested block should NOT duplicate IdentitiesOnly or StrictHostKeyChecking
+        block_part = content2.split("Host global-tested")[1]
+        self.assertNotIn("IdentitiesOnly", block_part)
+        self.assertNotIn("StrictHostKeyChecking", block_part)
+
 if __name__ == "__main__":
     unittest.main()
+

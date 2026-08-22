@@ -36,18 +36,47 @@ if not os.path.exists(config_path):
 with open(config_path, 'r') as f:
     content = f.read()
 
-block_pattern = r'(^Host\s+' + re.escape(alias) + r'\b(.*?))(?=\nHost\s|\Z)'
-match = re.search(block_pattern, content, flags=re.DOTALL | re.MULTILINE)
+def get_host_blocks(full_content):
+    header_matches = list(re.finditer(r'^[ \t]*Host[ \t]+([^\n]+)$', full_content, flags=re.MULTILINE))
+    blocks = []
+    for i, m in enumerate(header_matches):
+        aliases = m.group(1).split()
+        start = m.start()
+        end = header_matches[i+1].start() if i + 1 < len(header_matches) else len(full_content)
+        block_text = full_content[start:end]
+        blocks.append({
+            'aliases': aliases,
+            'text': block_text,
+            'start': start,
+            'end': end
+        })
+    return blocks
 
-if not match:
+def check_has_option(blocks, current_block_text, option_name):
+    if re.search(r'^[ \t]*' + re.escape(option_name) + r'\s+', current_block_text, flags=re.MULTILINE | re.IGNORECASE):
+        return True
+    for b in blocks:
+        if '*' in b['aliases']:
+            if re.search(r'^[ \t]*' + re.escape(option_name) + r'\s+', b['text'], flags=re.MULTILINE | re.IGNORECASE):
+                return True
+    return False
+
+blocks = get_host_blocks(content)
+target_block = None
+for b in blocks:
+    if alias in b['aliases']:
+        target_block = b
+        break
+
+if not target_block:
     lines = [f'Host {alias}', f'    HostName {ip}', f'    User {user}']
     if str(port) != '22' and str(port).strip():
         lines.append(f'    Port {port}')
     if identity_file:
         lines.append(f'    IdentityFile {identity_file}')
-        if not re.search(r'^[ \t]*IdentitiesOnly\s+', content, flags=re.MULTILINE | re.IGNORECASE):
+        if not check_has_option(blocks, '', 'IdentitiesOnly'):
             lines.append('    IdentitiesOnly yes')
-    if not re.search(r'^[ \t]*StrictHostKeyChecking\s+', content, flags=re.MULTILINE | re.IGNORECASE):
+    if not check_has_option(blocks, '', 'StrictHostKeyChecking'):
         lines.append('    StrictHostKeyChecking accept-new')
 
     new_block = '\n'.join(lines)
@@ -56,35 +85,42 @@ if not match:
     else:
         new_content = new_block + '\n'
 else:
-    block = match.group(1)
-    if re.search(r'^[ \t]*HostName\s+', block, flags=re.MULTILINE):
-        block = re.sub(r'(^[ \t]*HostName\s+)(\S+)', r'\g<1>' + ip, block, flags=re.MULTILINE)
+    block_text = target_block['text']
+    if re.search(r'^[ \t]*HostName\s+', block_text, flags=re.MULTILINE):
+        block_text = re.sub(r'(^[ \t]*HostName\s+)(\S+)', r'\g<1>' + ip, block_text, flags=re.MULTILINE)
     else:
-        block = block.rstrip() + f'\n    HostName {ip}\n'
+        header_end = block_text.find('\n')
+        if header_end != -1:
+            block_text = block_text[:header_end+1] + f'    HostName {ip}\n' + block_text[header_end+1:]
+        else:
+            block_text = block_text + f'\n    HostName {ip}\n'
 
-    if re.search(r'^[ \t]*User\s+', block, flags=re.MULTILINE):
-        block = re.sub(r'(^[ \t]*User\s+)(\S+)', r'\g<1>' + user, block, flags=re.MULTILINE)
+    if re.search(r'^[ \t]*User\s+', block_text, flags=re.MULTILINE):
+        block_text = re.sub(r'(^[ \t]*User\s+)(\S+)', r'\g<1>' + user, block_text, flags=re.MULTILINE)
     else:
-        block = block.rstrip() + f'\n    User {user}\n'
+        header_end = block_text.find('\n')
+        if header_end != -1:
+            block_text = block_text[:header_end+1] + f'    User {user}\n' + block_text[header_end+1:]
+        else:
+            block_text = block_text + f'\n    User {user}\n'
 
     if str(port) != '22' and str(port).strip():
-        if re.search(r'^[ \t]*Port\s+', block, flags=re.MULTILINE):
-            block = re.sub(r'(^[ \t]*Port\s+)(\d+)', r'\g<1>' + str(port), block, flags=re.MULTILINE)
+        if re.search(r'^[ \t]*Port\s+', block_text, flags=re.MULTILINE):
+            block_text = re.sub(r'(^[ \t]*Port\s+)(\d+)', r'\g<1>' + str(port), block_text, flags=re.MULTILINE)
         else:
-            block = block.rstrip() + f'\n    Port {port}\n'
+            block_text = block_text.rstrip() + f'\n    Port {port}\n'
     else:
-        block = re.sub(r'^[ \t]*Port\s+\d+\n?', '', block, flags=re.MULTILINE)
+        block_text = re.sub(r'^[ \t]*Port\s+\d+\n?', '', block_text, flags=re.MULTILINE)
 
     if identity_file:
-        if re.search(r'^[ \t]*IdentityFile\s+', block, flags=re.MULTILINE):
-            block = re.sub(r'(^[ \t]*IdentityFile\s+)(\S+)', r'\g<1>' + identity_file, block, flags=re.MULTILINE)
+        if re.search(r'^[ \t]*IdentityFile\s+', block_text, flags=re.MULTILINE):
+            block_text = re.sub(r'(^[ \t]*IdentityFile\s+)(\S+)', r'\g<1>' + identity_file, block_text, flags=re.MULTILINE)
         else:
-            block = block.rstrip() + f'\n    IdentityFile {identity_file}\n'
-        if not re.search(r'^[ \t]*IdentitiesOnly\s+', content, flags=re.MULTILINE | re.IGNORECASE):
-            if not re.search(r'^[ \t]*IdentitiesOnly\s+', block, flags=re.MULTILINE | re.IGNORECASE):
-                block = block.rstrip() + '\n    IdentitiesOnly yes\n'
+            block_text = block_text.rstrip() + f'\n    IdentityFile {identity_file}\n'
+        if not check_has_option(blocks, block_text, 'IdentitiesOnly'):
+            block_text = block_text.rstrip() + '\n    IdentitiesOnly yes\n'
 
-    new_content = content[:match.start()] + block + content[match.end():]
+    new_content = content[:target_block['start']] + block_text + content[target_block['end']:]
 
 with open(config_path, 'w') as f:
     f.write(new_content)
@@ -108,15 +144,18 @@ if not os.path.exists(config_path):
 with open(config_path, 'r') as f:
     content = f.read()
 
-block_pattern = r'(^Host\s+' + re.escape(alias) + r'\b(.*?))(?=\nHost\s|\Z)'
-match = re.search(block_pattern, content, flags=re.DOTALL | re.MULTILINE)
-if match:
-    block = match.group(1)
-    for line in block.splitlines():
-        parts = line.strip().split(None, 1)
-        if len(parts) == 2 and parts[0].lower() == field:
-            print(parts[1])
-            sys.exit(0)
+header_matches = list(re.finditer(r'^[ \t]*Host[ \t]+([^\n]+)$', content, flags=re.MULTILINE))
+for i, m in enumerate(header_matches):
+    aliases = m.group(1).split()
+    if alias in aliases:
+        start = m.start()
+        end = header_matches[i+1].start() if i + 1 < len(header_matches) else len(content)
+        block_text = content[start:end]
+        for line in block_text.splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) == 2 and parts[0].lower() == field:
+                print(parts[1])
+                sys.exit(0)
 sys.exit(1)
 " "$alias" "$field_lower" 2>/dev/null
 }
@@ -216,11 +255,29 @@ try:
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
             content = f.read()
-        pattern = r'(Host\s+' + re.escape(alias) + r'\s+[\s\S]*?HostName\s+)(\S+)'
-        new_content = re.sub(pattern, r'\g<1>' + domain, content, count=1)
-        with open(config_path, 'w') as f:
-            f.write(new_content)
-        print('🌐 已成功将 ~/.ssh/config 中的 HostName 升级为伪装域名:', domain)
+        header_matches = list(re.finditer(r'^[ \t]*Host[ \t]+([^\n]+)$', content, flags=re.MULTILINE))
+        target_block = None
+        for i, m in enumerate(header_matches):
+            aliases = m.group(1).split()
+            if alias in aliases:
+                start = m.start()
+                end = header_matches[i+1].start() if i + 1 < len(header_matches) else len(content)
+                target_block = (start, end, content[start:end])
+                break
+        if target_block:
+            start, end, block_text = target_block
+            if re.search(r'^[ \t]*HostName\s+', block_text, flags=re.MULTILINE):
+                block_text = re.sub(r'(^[ \t]*HostName\s+)(\S+)', r'\g<1>' + domain, block_text, flags=re.MULTILINE)
+            else:
+                header_end = block_text.find('\n')
+                if header_end != -1:
+                    block_text = block_text[:header_end+1] + f'    HostName {domain}\n' + block_text[header_end+1:]
+                else:
+                    block_text = block_text + f'\n    HostName {domain}\n'
+            new_content = content[:start] + block_text + content[end:]
+            with open(config_path, 'w') as f:
+                f.write(new_content)
+            print('🌐 已成功将 ~/.ssh/config 中的 HostName 升级为伪装域名:', domain)
 except Exception as e:
     pass
 " "$alias" "$domain" 2>/dev/null || true
