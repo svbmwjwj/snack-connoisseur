@@ -14,7 +14,11 @@ bash -n cnsr.sh
 bash -n lib/ui.sh
 bash -n lib/ssh.sh
 bash -n lib/security.sh
-echo "✅ All templates, cnsr.sh, and lib modules passed bash -n static syntax validation!"
+bash -n core/check.sh
+bash -n core/update.sh
+bash -n core/rotate.sh
+bash -n core/test.sh
+echo "✅ All templates, cnsr.sh, lib, and core modules passed bash -n static syntax validation!"
 
 echo "=== 2. Testing runner.template.sh update & execution ==="
 TMP_DIR=$(mktemp -d)
