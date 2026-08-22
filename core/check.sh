@@ -14,17 +14,8 @@ fi
 
 SSH_CONFIG_PATH="${TEST_SSH_CONFIG:-$HOME/.ssh/config}"
 
-function module_check() {
-    local alias="${1:-$SSH_ALIAS}"
-    if [ -z "$alias" ]; then
-        if [ "$CNSR_LANG" = "en" ]; then
-            echo "❌ Error: Please specify node alias. (Usage: ./cnsr.sh check <alias>)"
-        else
-            echo "❌ 错误: 请指定节点别名。 (用法: ./cnsr.sh check <别名>)"
-        fi
-        return 1
-    fi
-
+function single_node_check() {
+    local alias="$1"
     if [ "$CNSR_LANG" = "en" ]; then
         echo "🩺 Initiating full-link dual-perspective diagnostics: $alias"
     else
@@ -119,9 +110,61 @@ function module_check() {
     fi
 
     if [ "$CNSR_LANG" = "en" ]; then
-        echo "✅ Remote health check completed! Report dispatched via Telegram."
+        echo "✅ Full-link health check completed for [$alias]! Report dispatched via Telegram."
     else
-        echo "✅ 全链路体检完成！报告已通过 Telegram 下发。"
+        echo "✅ 节点 [$alias] 全链路体检完成！报告已通过 Telegram 下发。"
     fi
     return 0
+}
+
+function module_check() {
+    local first_arg="${1:-$SSH_ALIAS}"
+    if [ $# -eq 0 ] || [ -z "$first_arg" ]; then
+        if [ "$CNSR_LANG" = "en" ]; then
+            echo "❌ Error: Please specify node alias or pattern. (Usage: ./cnsr.sh check <alias|pattern>)"
+        else
+            echo "❌ 错误: 请指定节点别名或匹配模式。 (用法: ./cnsr.sh check <别名|通配符>)"
+        fi
+        return 1
+    fi
+
+    local target_aliases=()
+    local input_args=("$@")
+    [ ${#input_args[@]} -eq 0 ] && input_args=("$SSH_ALIAS")
+
+    for arg in "${input_args[@]}"; do
+        if [[ "$arg" == *"*"* ]]; then
+            local base_pattern="${arg%\*}"
+            while IFS= read -r line; do
+                if [[ "$line" == Host\ $base_pattern* ]]; then
+                    local found_alias=$(echo "$line" | awk '{print $2}')
+                    target_aliases+=("$found_alias")
+                fi
+            done < <(grep -i "^Host " "$SSH_CONFIG_PATH" 2>/dev/null || true)
+        else
+            target_aliases+=("$arg")
+        fi
+    done
+
+    if [ ${#target_aliases[@]} -gt 0 ]; then
+        IFS=$'\n' target_aliases=($(sort -V -u <<<"${target_aliases[*]}"))
+        unset IFS
+    fi
+
+    if [ ${#target_aliases[@]} -eq 0 ]; then
+        echo "❌ 未找到任何有效的目标节点。"
+        return 1
+    fi
+
+    local has_err=0
+    for cur_alias in "${target_aliases[@]}"; do
+        echo "================================================================================"
+        single_node_check "$cur_alias"
+        local status=$?
+        if [ $status -ne 0 ]; then
+            has_err=$status
+        fi
+        echo ""
+    done
+    return $has_err
 }
