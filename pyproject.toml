@@ -1,0 +1,14 @@
+[project]
+name = "snack-connoisseur"
+version = "0.1.0"
+description = "Snack Connoisseur - X-ray REALITY Controller & Cloud Manager"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.34.0",
+    "moto>=5.0.0",
+    "pytest>=8.0.0",
+]
+
+[tool.uv]
+package = false
