@@ -68,14 +68,17 @@ def create_instance(args=None, **kwargs):
             instances_to_create.append(name)
             
     if instances_to_create:
+        # Lightsail strictly requires availabilityZone, unlike EC2.
+        # If user did not provide a specific zone, default to zone 'a'.
+        az_to_use = zone if zone else f"{region}a"
+        
         create_kwargs = {
             "instanceNames": instances_to_create,
+            "availabilityZone": az_to_use,
             "bundleId": bundle_id,
             "blueprintId": blueprint_id,
         }
-        if zone:
-            create_kwargs["availabilityZone"] = zone
-            
+        
         if user_data:
             create_kwargs["userData"] = user_data
         if key_pair_name:
