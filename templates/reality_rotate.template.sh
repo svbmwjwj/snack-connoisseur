@@ -473,9 +473,11 @@ if [ -n "$GATEWAY_URL" ] || { [ -n "$TG_BOT_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; };
     QX_CONFIG="vless=${SERVER_HOST}:${PORT}, method=none, password=${NEW_UUID}, obfs=over-tls, obfs-host=${NEW_SNI}, reality-base64-pubkey=${NEW_PUBLIC_KEY}, reality-hex-shortid=${NEW_SHORT_ID}, vless-flow=${FLOW}, udp-relay=true, fast-open=true, tag=${SSH_ALIAS}"
     VLESS_URI="vless://${NEW_UUID}@${SERVER_HOST}:${PORT}?encryption=none&security=reality&sni=${NEW_SNI}&fp=chrome&pbk=${NEW_PUBLIC_KEY}&sid=${NEW_SHORT_ID}&type=tcp&flow=${FLOW}#${SSH_ALIAS}"
 
+    # 始终将最新的 VLESS 和 QX 配置写入本地文件，确保 cnsr print 随时能读到最新配置
+    echo "$VLESS_URI" > "${DOCKER_DIR}/vless.txt"
+    echo "$QX_CONFIG" > "${DOCKER_DIR}/qx.txt"
+
     if [ "$BATCH_MODE" = "true" ] && [ "$IS_INIT" = "true" ]; then
-        echo "$VLESS_URI" > "${DOCKER_DIR}/vless.txt"
-        echo "$QX_CONFIG" > "${DOCKER_DIR}/qx.txt"
         echo "✅ 批量编排初始化模式：配置已写入本地 ${DOCKER_DIR}/vless.txt 和 qx.txt，静默单节点推送以防止刷屏。"
     else
         MESSAGE=$(tpl_node_config "$IS_INIT" "$SSH_ALIAS" "$SERVER_HOST" "$NEW_SNI" "$NEW_UUID" "$NEW_PUBLIC_KEY" "$NEW_SHORT_ID" "$QX_CONFIG" "$VLESS_URI")
