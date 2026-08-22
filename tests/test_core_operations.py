@@ -113,7 +113,7 @@ exit 0
         self.assertIn("请指定节点别名", res.stdout)
 
     def test_module_check_execution(self):
-        """module_check should sync scripts and invoke reality_check.sh --notify remotely."""
+        """module_check should perform local probe and remote check, reporting success."""
         check_sh = os.path.join(self.core_dir, "check.sh")
         bin_dir = self._setup_bin_dir()
         log_file = os.path.join(self.temp_dir, "check_ssh.log")
@@ -123,7 +123,8 @@ exit 0
             f.write(f"""#!/bin/bash
 echo "SSH: $@" >> "{log_file}"
 if [[ "$*" == *"eval echo ~"* ]]; then echo "/home/admin"; exit 0; fi
-if [[ "$*" == *"curl -4"* ]]; then echo "198.51.100.44"; exit 0; fi
+if [[ "$*" == *"curl -4"* ]]; then echo "198.51.100.44|gateway.icloud.com"; exit 0; fi
+if [[ "$*" == *"serverNames"* ]]; then echo "198.51.100.44|gateway.icloud.com"; exit 0; fi
 if [[ "$*" == *"-G"* ]]; then echo "hostname 198.51.100.44"; exit 0; fi
 if [[ "$*" == *"reality_check.sh --notify"* ]]; then
     echo "MOCK_CHECK_DONE"
@@ -141,6 +142,15 @@ exit 0
 """)
         os.chmod(mock_scp, 0o755)
 
+        mock_openssl = os.path.join(bin_dir, "openssl")
+        with open(mock_openssl, "w") as f:
+            f.write("""#!/bin/bash
+echo "Server certificate"
+echo "Cipher : TLS_AES_256_GCM_SHA384"
+exit 0
+""")
+        os.chmod(mock_openssl, 0o755)
+
         cmd = f"""
         export PATH="{bin_dir}:$PATH"
         export TEST_SSH_CONFIG="{self.test_ssh_config}"
@@ -150,11 +160,56 @@ exit 0
         """
         res = subprocess.run(["bash", "-c", cmd], cwd=self.repo_root, capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, f"module_check failed:\nSTDOUT:{res.stdout}\nSTDERR:{res.stderr}")
-        self.assertIn("远端体检完成", res.stdout)
+        self.assertIn("全链路体检完成", res.stdout)
 
         with open(log_file, "r") as f:
             log_content = f.read()
         self.assertIn("reality_check.sh --notify", log_content)
+
+    def test_module_check_local_blocked_alert(self):
+        """module_check should raise exit code 2 and alert when local TLS handshake fails."""
+        check_sh = os.path.join(self.core_dir, "check.sh")
+        bin_dir = self._setup_bin_dir()
+
+        mock_ssh = os.path.join(bin_dir, "ssh")
+        with open(mock_ssh, "w") as f:
+            f.write("""#!/bin/bash
+if [[ "$*" == *"eval echo ~"* ]]; then echo "/home/admin"; exit 0; fi
+if [[ "$*" == *"serverNames"* ]]; then echo "198.51.100.44|blocked-sni.xyz"; exit 0; fi
+if [[ "$*" == *"-G"* ]]; then echo "hostname 198.51.100.44"; exit 0; fi
+if [[ "$*" == *"reality_check.sh --notify"* ]]; then
+    echo "MOCK_REMOTE_OK"
+    exit 0
+fi
+exit 0
+""")
+        os.chmod(mock_ssh, 0o755)
+
+        mock_scp = os.path.join(bin_dir, "scp")
+        with open(mock_scp, "w") as f:
+            f.write("""#!/bin/bash
+exit 0
+""")
+        os.chmod(mock_scp, 0o755)
+
+        mock_openssl = os.path.join(bin_dir, "openssl")
+        with open(mock_openssl, "w") as f:
+            f.write("""#!/bin/bash
+echo "SSL_ERROR_SYSCALL"
+exit 1
+""")
+        os.chmod(mock_openssl, 0o755)
+
+        cmd = f"""
+        export PATH="{bin_dir}:$PATH"
+        export TEST_SSH_CONFIG="{self.test_ssh_config}"
+        touch "{self.test_ssh_config}"
+        source "{check_sh}"
+        module_check "sg_node_check"
+        """
+        res = subprocess.run(["bash", "-c", cmd], cwd=self.repo_root, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("假死状态", res.stdout)
 
     # ------------------------------------------------------------------
     # 4. Test core/rotate.sh

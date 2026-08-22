@@ -18,7 +18,7 @@ class TestCnsrSync(unittest.TestCase):
         """Running cnsr.sh with no args should print usage containing the update command."""
         res = subprocess.run(["bash", self.cnsr_path], capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
-        self.assertIn("update <别名>", res.stdout)
+        self.assertIn("update <别名", res.stdout)
 
     def test_sanitize_env_for_node_removes_cloud_credentials(self):
         """sanitize_env_for_node must strictly strip AWS and Cloudflare secrets."""

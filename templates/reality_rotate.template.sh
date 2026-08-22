@@ -143,12 +143,52 @@ done
 CURRENT_SNI=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0] // ""' "$CONFIG_FILE")
 NEED_ROTATE=false
 
+function is_domain_poisoned_in_china() {
+    if [ "$MOCK_DOH_POISON_FAIL" = "1" ]; then
+        return 0
+    fi
+    local domain="$1"
+    [ -z "$domain" ] && return 0
+    local BOGON_REGEX='^(0\.0\.0\.0|127\.|198\.18\.|39\.104\.|46\.82\.174\.|8\.7\.198\.|37\.61\.54\.|93\.46\.8\.|59\.24\.3\.|203\.98\.7\.|78\.16\.49\.|159\.106\.121\.|243\.185\.187\.|208\.65\.153\.|211\.167\.97\.|216\.234\.234\.|4\.36\.66\.|8\.238\.16\.)'
+
+    # 向境内直连递归 DNS (114.114.114.114 与广东电信 202.96.128.86) 发起标准 DNS 探测，必经 GFW 边界网关
+    local dns_servers=("114.114.114.114" "202.96.128.86" "218.2.2.2")
+    local resolved_ips=""
+    for srv in "${dns_servers[@]}"; do
+        resolved_ips=$(dig @"$srv" "$domain" A +time=2 +tries=1 +short 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true)
+        if [ -n "$resolved_ips" ]; then
+            break
+        fi
+    done
+
+    # 若境内无响应或未获取到 A 记录
+    if [ -z "$resolved_ips" ]; then
+        return 0
+    fi
+
+    for ip in $resolved_ips; do
+        if echo "$ip" | grep -Eq "$BOGON_REGEX"; then
+            return 0  # 命中 GFW 投毒特征
+        fi
+    done
+
+    return 1  # 境内解析正常
+}
+
 function check_sni_health() {
     if [ "$MOCK_SNI_PROBE_FAIL" = "1" ]; then
         echo "    [MOCK] 强行挂钩，让 check_sni_health 返回失败"
         return 1
     fi
     local domain="$1"
+
+    # 1. 境内公共 DoH 投毒初筛
+    if is_domain_poisoned_in_china "$domain"; then
+        echo "    ⚠️ 域名 [$domain] 经由境内公共 DoH 检测存在 DNS 投毒或解析异常！"
+        return 1
+    fi
+
+    # 2. 远端 TLS 握手与证书检测
     local checker="${DOCKER_DIR}/reality-checker"
     if [ ! -x "$checker" ]; then
         checker="/home/admin/reality-checker"
@@ -351,8 +391,8 @@ if [ -s "$CSV_FILE" ]; then
 
         cat "$CHECKER_LOG"
 
-        # 3.3 严密解析表格，严格考量全部 7 项指标 (基础条件✓、无CDN、页面状态200、四星/五星推荐)
-        NEW_SNI=$(sed -E 's/\x1B\[[0-9;]*[a-zA-Z]//g' "$CHECKER_LOG" | awk -F'|' '
+        # 3.3 严密解析表格，严格考量全部 7 项指标，并经国内公共 DoH 投毒初筛
+        CANDIDATES_RAW=$(sed -E 's/\x1B\[[0-9;]*[a-zA-Z]//g' "$CHECKER_LOG" | awk -F'|' '
           /\|/ && $2 !~ /最终域名/ && $2 !~ /^\s*\+-/ {
             domain = $2; gsub(/^[ \t]+|[ \t]+$/, "", domain);
             base = $3;   gsub(/^[ \t]+|[ \t]+$/, "", base);
@@ -364,7 +404,21 @@ if [ -s "$CSV_FILE" ]; then
               print domain;
             }
           }
-        ' | grep -v "${CURRENT_SNI}" | head -n 1)
+        ' | grep -v "${CURRENT_SNI}" || true)
+
+        if [ -n "$CANDIDATES_RAW" ]; then
+            echo "🇨🇳 正在对候选高星域名进行境内 GFW 污染预筛..."
+            while IFS= read -r cand; do
+                [ -z "$cand" ] && continue
+                if is_domain_poisoned_in_china "$cand"; then
+                    echo "  ❌ 剔除: [$cand] 境内已遭 DNS 投毒或解析异常！"
+                else
+                    echo "  ✅ 通过: [$cand] 境内解析干净，选定！"
+                    NEW_SNI="$cand"
+                    break
+                fi
+            done <<< "$CANDIDATES_RAW"
+        fi
         rm -f "$CHECKER_LOG"
     fi
 fi
