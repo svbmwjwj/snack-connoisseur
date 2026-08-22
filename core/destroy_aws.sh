@@ -49,8 +49,8 @@ if [ -n "$PROFILE_INPUT" ]; then
         RESOLVED_CONF="templates/${PROFILE_INPUT}.conf"
     fi
     if [ -n "$RESOLVED_CONF" ] && [ -f "$RESOLVED_CONF" ]; then
-        T_REGION=$(grep -E "^[[:space:]]*REGION=" "$RESOLVED_CONF" | head -n1 | cut -d= -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'\'']//' -e 's/["'\'']$//' -e 's/[[:space:]]*#.*$//')
-        T_ALIAS=$(grep -E "^[[:space:]]*ALIAS=" "$RESOLVED_CONF" | head -n1 | cut -d= -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'\'']//' -e 's/["'\'']$//' -e 's/[[:space:]]*#.*$//')
+        T_REGION=$(grep -E "^[[:space:]]*REGION=" "$RESOLVED_CONF" | head -n1 | cut -d= -f2- | sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//' | tr -d '\r')
+        T_ALIAS=$(grep -E "^[[:space:]]*ALIAS=" "$RESOLVED_CONF" | head -n1 | cut -d= -f2- | sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//' | tr -d '\r')
         [ -z "$REGION" ] && REGION="$T_REGION"
         [ -z "$SSH_ALIAS" ] && SSH_ALIAS="${T_ALIAS}-*"
     fi

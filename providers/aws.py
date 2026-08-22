@@ -9,7 +9,7 @@ import re
 def validate_region(region):
     if not region:
         raise ValueError("Missing AWS region parameter (e.g., --region ap-northeast-1)")
-    region = str(region).strip()
+    region = str(region).strip().strip("'\"")
     m = re.match(r'^([a-z]+-[a-z]+-\d+)([a-z])$', region)
     if m:
         suggested_region = m.group(1)
@@ -185,6 +185,7 @@ def delete_instance(args=None, **kwargs):
 
     if not pattern:
         raise ValueError("Missing instance name or pattern to delete")
+    pattern = str(pattern).strip().strip("'\"")
 
     region = validate_region(region)
     client = boto3.client("lightsail", region_name=region)
