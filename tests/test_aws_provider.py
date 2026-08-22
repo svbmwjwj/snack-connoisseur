@@ -197,6 +197,51 @@ class TestAwsProviderOpenPort:
 
 
 
+class TestAwsProviderDeleteInstance:
+    """Tests for AWS Lightsail instance deletion."""
+
+    @patch("providers.aws.boto3.client")
+    def test_delete_instance_exact_match(self, mock_boto):
+        from providers.aws import delete_instance
+
+        mock_client = MagicMock()
+        mock_boto.return_value = mock_client
+        mock_client.get_instances.return_value = {
+            "instances": [{"name": "jp-node-1"}]
+        }
+        mock_client.get_static_ips.return_value = {
+            "staticIps": [{"name": "static-ip-1", "attachedTo": "jp-node-1"}]
+        }
+
+        res = delete_instance(alias="jp-node-1", region="ap-northeast-1")
+
+        mock_boto.assert_called_with("lightsail", region_name="ap-northeast-1")
+        mock_client.release_static_ip.assert_called_once_with(staticIpName="static-ip-1")
+        mock_client.delete_instance.assert_called_once_with(instanceName="jp-node-1")
+        assert res["count"] == 1
+        assert res["deleted"][0]["name"] == "jp-node-1"
+
+    @patch("providers.aws.boto3.client")
+    def test_delete_instance_wildcard_pattern(self, mock_boto):
+        from providers.aws import delete_instance
+
+        mock_client = MagicMock()
+        mock_boto.return_value = mock_client
+        mock_client.get_instances.return_value = {
+            "instances": [
+                {"name": "jp-node-1"},
+                {"name": "jp-node-2"},
+                {"name": "us-node-1"},
+            ]
+        }
+        mock_client.get_static_ips.return_value = {"staticIps": []}
+
+        res = delete_instance(alias="jp-node-*", region="ap-northeast-1")
+
+        assert res["count"] == 2
+        assert mock_client.delete_instance.call_count == 2
+
+
 class TestAwsProviderCli:
     """Tests for the CLI dispatcher entrypoint of providers/aws.py."""
 
@@ -205,12 +250,24 @@ class TestAwsProviderCli:
         from providers.aws import main
 
         mock_create.return_value = {"name": "aws-node-1", "ip": "198.51.100.20"}
-        exit_code = main(["create", "--alias", "aws-node-1", "--region", "ap-northeast-1"])
+        exit_code = main(["create", "--alias", "aws-node-1", "--region", "ap-northeast-1", "--bundle", "micro_3_0", "--blueprint", "ubuntu_22_04"])
 
         assert exit_code == 0
         mock_create.assert_called_once()
         captured = capsys.readouterr()
         assert "198.51.100.20" in captured.out
+
+    @patch("providers.aws.delete_instance")
+    def test_cli_delete_instance(self, mock_delete, capsys):
+        from providers.aws import main
+
+        mock_delete.return_value = {"count": 1, "deleted": [{"name": "aws-node-1"}]}
+        exit_code = main(["delete", "--alias", "aws-node-1", "--region", "ap-northeast-1"])
+
+        assert exit_code == 0
+        mock_delete.assert_called_once()
+        captured = capsys.readouterr()
+        assert "aws-node-1" in captured.out
 
     @patch("providers.aws.rotate_ip")
     def test_cli_rotate_ip(self, mock_rotate, capsys):
@@ -233,3 +290,4 @@ class TestAwsProviderCli:
 
         assert exit_code == 0
         mock_open.assert_called_once()
+

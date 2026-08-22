@@ -391,6 +391,37 @@ Host other-node
         self.assertNotIn("IdentitiesOnly", block_part)
         self.assertNotIn("StrictHostKeyChecking", block_part)
 
+    def test_remove_ssh_alias_exact_and_wildcard(self):
+        """Test removing SSH aliases by exact name and wildcard pattern."""
+        with open(self.test_ssh_config, "w") as f:
+            f.write("""Host jp-node-1
+    HostName 1.1.1.1
+    User admin
+
+Host jp-node-2
+    HostName 1.1.1.2
+    User admin
+
+Host sg-node-1
+    HostName 2.2.2.2
+    User admin
+""")
+
+        cmd = f"""
+        export TEST_SSH_CONFIG="{self.test_ssh_config}"
+        source "{self.ssh_sh}"
+        remove_ssh_alias "jp-node-*"
+        """
+        subprocess.run(["bash", "-c", cmd], check=True)
+
+        with open(self.test_ssh_config, "r") as f:
+            content = f.read()
+
+        self.assertNotIn("jp-node-1", content)
+        self.assertNotIn("jp-node-2", content)
+        self.assertIn("sg-node-1", content)
+
 if __name__ == "__main__":
     unittest.main()
+
 

@@ -285,3 +285,48 @@ except Exception as e:
         echo "ℹ️ 新伪装域名 ($domain) 全网 DNS 广播扩散中，当前本地 SSH Config 维持 IP 连接以保障稳定。"
     fi
 }
+
+function remove_ssh_alias() {
+    local pattern="$1"
+    local cfg="${TEST_SSH_CONFIG:-${SSH_CONFIG_PATH:-$HOME/.ssh/config}}"
+    python3 -c "
+import sys, os, re, fnmatch
+config_path = os.path.expanduser(sys.argv[1])
+pattern = sys.argv[2]
+if not os.path.exists(config_path):
+    sys.exit(0)
+
+with open(config_path, 'r') as f:
+    content = f.read()
+
+header_matches = list(re.finditer(r'^[ \t]*Host[ \t]+([^\n]+)$', content, flags=re.MULTILINE))
+new_blocks = []
+
+for i, m in enumerate(header_matches):
+    aliases = m.group(1).split()
+    start = m.start()
+    end = header_matches[i+1].start() if i + 1 < len(header_matches) else len(content)
+    block_text = content[start:end]
+    
+    match = False
+    for a in aliases:
+        if a == pattern or fnmatch.fnmatch(a, pattern):
+            match = True
+            break
+    if not match:
+        new_blocks.append(block_text)
+
+prefix_text = ''
+if header_matches:
+    prefix_text = content[:header_matches[0].start()]
+
+with open(config_path, 'w') as f:
+    res_str = prefix_text + ''.join(new_blocks).strip()
+    if res_str:
+        f.write(res_str + '\n')
+    else:
+        f.write('')
+" "$cfg" "$pattern"
+}
+
+

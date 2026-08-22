@@ -1,5 +1,6 @@
 import argparse
 import boto3
+import fnmatch
 import json
 import uuid
 import sys
@@ -9,16 +10,16 @@ def create_instance(args=None, **kwargs):
         instance_name = getattr(args, 'alias', None)
         region = getattr(args, 'region', None)
         count = getattr(args, 'count', 1)
-        bundle_id = getattr(args, 'bundle_id', "nano_3_0")
-        blueprint_id = getattr(args, 'blueprint_id', "debian_12")
+        bundle_id = getattr(args, 'bundle', getattr(args, 'bundle_id', "nano_3_0"))
+        blueprint_id = getattr(args, 'blueprint', getattr(args, 'blueprint_id', "debian_12"))
         user_data = getattr(args, 'user_data', None)
         key_pair_name = getattr(args, 'key_pair_name', None)
     else:
         instance_name = kwargs.get("instance_name")
         region = kwargs.get("region")
         count = kwargs.get("count", 1)
-        bundle_id = kwargs.get("bundle_id", "nano_3_0")
-        blueprint_id = kwargs.get("blueprint_id", "debian_12")
+        bundle_id = kwargs.get("bundle", kwargs.get("bundle_id", "nano_3_0"))
+        blueprint_id = kwargs.get("blueprint", kwargs.get("blueprint_id", "debian_12"))
         user_data = kwargs.get("user_data")
         key_pair_name = kwargs.get("key_pair_name")
 
@@ -74,6 +75,64 @@ def create_instance(args=None, **kwargs):
     if count == 1:
         return results[0]
     return results
+
+
+def delete_instance(args=None, **kwargs):
+    if args is not None:
+        pattern = getattr(args, 'alias', None)
+        region = getattr(args, 'region', None)
+    else:
+        pattern = kwargs.get("alias", kwargs.get("instance_name"))
+        region = kwargs.get("region")
+
+    if not pattern:
+        raise ValueError("Missing instance name or pattern to delete")
+
+    client = boto3.client("lightsail", region_name=region)
+    
+    # Find all instances matching pattern
+    all_inst_resp = client.get_instances()
+    instances = all_inst_resp.get("instances", []) if isinstance(all_inst_resp, dict) else []
+    
+    matched_names = []
+    for inst in instances:
+        name = inst.get("name", "")
+        if name == pattern or fnmatch.fnmatch(name, pattern):
+            matched_names.append(name)
+
+    if not matched_names:
+        return {"deleted": [], "message": f"No instances found matching '{pattern}' in region {region}"}
+
+    # Query static IPs once to release attached ones
+    static_ips_resp = client.get_static_ips()
+    static_ips = static_ips_resp.get("staticIps", []) if isinstance(static_ips_resp, dict) else []
+    
+    attached_static_ips = {}
+    for sip in static_ips:
+        attached_to = sip.get("attachedTo")
+        if attached_to:
+            attached_static_ips[attached_to] = sip.get("name")
+
+    deleted_summary = []
+    for name in matched_names:
+        # Release attached static IP if exists
+        released_sip = None
+        if name in attached_static_ips:
+            sip_name = attached_static_ips[name]
+            try:
+                client.release_static_ip(staticIpName=sip_name)
+                released_sip = sip_name
+            except Exception:
+                pass
+
+        # Delete instance
+        client.delete_instance(instanceName=name)
+        deleted_summary.append({
+            "name": name,
+            "released_static_ip": released_sip
+        })
+
+    return {"deleted": deleted_summary, "count": len(deleted_summary)}
 
 
 def rotate_ip(args=None, **kwargs):
@@ -179,6 +238,13 @@ def main(cli_args=None):
     create_parser.add_argument("--alias", required=True)
     create_parser.add_argument("--region", required=True)
     create_parser.add_argument("--count", type=int, default=1)
+    create_parser.add_argument("--bundle", "--bundle-id", dest="bundle", default="nano_3_0")
+    create_parser.add_argument("--blueprint", "--blueprint-id", dest="blueprint", default="debian_12")
+    create_parser.add_argument("--key", "--key-pair", "--key-pair-name", dest="key_pair_name", default=None)
+    
+    delete_parser = subparsers.add_parser("delete")
+    delete_parser.add_argument("--alias", required=True)
+    delete_parser.add_argument("--region", required=True)
     
     rotate_parser = subparsers.add_parser("rotate-ip")
     rotate_parser.add_argument("--alias", required=True)
@@ -195,6 +261,10 @@ def main(cli_args=None):
         res = create_instance(args=parsed)
         print(json.dumps(res))
         return 0
+    elif parsed.command == "delete":
+        res = delete_instance(args=parsed)
+        print(json.dumps(res))
+        return 0
     elif parsed.command == "rotate-ip":
         res = rotate_ip(args=parsed)
         print(json.dumps(res))
@@ -208,3 +278,4 @@ def main(cli_args=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+

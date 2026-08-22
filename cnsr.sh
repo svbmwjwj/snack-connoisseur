@@ -67,6 +67,9 @@ case "$COMMAND" in
     init-aws)
         source core/init_aws.sh "$ALIAS" "$@"
         ;;
+    destroy-aws)
+        source core/destroy_aws.sh "$ALIAS" "$@"
+        ;;
     check)
         source core/check.sh
         module_check "$ALIAS" "$@"

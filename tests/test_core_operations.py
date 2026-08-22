@@ -37,11 +37,12 @@ exec "$@"
     # ------------------------------------------------------------------
     def test_core_scripts_exist_and_pass_syntax(self):
         """All core operations scripts must exist and pass bash -n static check."""
-        for script_name in ["check.sh", "update.sh", "rotate.sh", "test.sh"]:
+        for script_name in ["check.sh", "update.sh", "rotate.sh", "test.sh", "init_aws.sh", "destroy_aws.sh"]:
             script_path = os.path.join(self.core_dir, script_name)
             self.assertTrue(os.path.exists(script_path), f"File {script_path} does not exist!")
             res = subprocess.run(["bash", "-n", script_path], capture_output=True, text=True)
             self.assertEqual(res.returncode, 0, f"Syntax error in {script_name}:\n{res.stderr}")
+
 
     # ------------------------------------------------------------------
     # 2. Test core/update.sh
@@ -542,5 +543,43 @@ exit 0
         with open(log_file, "r") as f:
             self.assertIn("reality_rotate.sh --force", f.read())
 
+    # ------------------------------------------------------------------
+    # 7. Test core/destroy_aws.sh & core/init_aws.sh
+    # ------------------------------------------------------------------
+    def test_destroy_aws_missing_params(self):
+        """destroy_aws.sh without alias or region should error."""
+        destroy_sh = os.path.join(self.core_dir, "destroy_aws.sh")
+        res1 = subprocess.run(["bash", destroy_sh], cwd=self.repo_root, capture_output=True, text=True)
+        self.assertNotEqual(res1.returncode, 0)
+
+        res2 = subprocess.run(["bash", destroy_sh, "my-node"], cwd=self.repo_root, capture_output=True, text=True)
+        self.assertNotEqual(res2.returncode, 0)
+        self.assertIn("region", res2.stdout.lower() + res2.stderr.lower())
+
+    def test_init_aws_missing_params(self):
+        """init_aws.sh without alias or region should error."""
+        init_aws_sh = os.path.join(self.core_dir, "init_aws.sh")
+        res1 = subprocess.run(["bash", init_aws_sh], cwd=self.repo_root, capture_output=True, text=True)
+        self.assertNotEqual(res1.returncode, 0)
+
+    def test_init_aws_template_resolution(self):
+        """init_aws.sh -f jp_aws-lightsail should resolve templates/jp_aws-lightsail.conf."""
+        init_aws_sh = os.path.join(self.core_dir, "init_aws.sh")
+        # Run with invalid template name to verify error message mentions file not found
+        res = subprocess.run(["bash", init_aws_sh, "-f", "nonexistent-template"], cwd=self.repo_root, capture_output=True, text=True)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("nonexistent-template", res.stdout + res.stderr)
+
+    def test_init_aws_count_limit_exceeded(self):
+        """init_aws.sh with count > 20 should abort with quota protection error."""
+        init_aws_sh = os.path.join(self.core_dir, "init_aws.sh")
+        res = subprocess.run(["bash", init_aws_sh, "my-node", "--region", "ap-northeast-1", "--count", "25"], cwd=self.repo_root, capture_output=True, text=True)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("20", res.stdout + res.stderr)
+
 if __name__ == "__main__":
     unittest.main()
+
+
+
+
