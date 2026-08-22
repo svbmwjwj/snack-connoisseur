@@ -17,6 +17,7 @@ COMMANDS:
   init-aws -f <conf>           Batch provision AWS nodes from a config file
   destroy-aws <alias|pattern>  Destroy AWS Lightsail instance(s) and clean SSH config (Option: --region)
   check <alias>                Comprehensive health check: latency, SNI quality, BBR, container
+  link <alias|pattern>         Fetch aggregate subscription links and QX configs (Options: --tg, --batch)
   update <alias>               Full hot-update: sync runner shim, self-healing probe, sanitized env
   rotate-sni <alias>           Force fingerprint rotation: reset UUID, keys, ShortID, and SNI
   rotate-dns <alias>           Active domain rotation: refresh secondary domain via Cloudflare
@@ -30,6 +31,7 @@ OPTIONS:
   --harden                     Enable high-security hardening (for init)
   --debug                      Enable verbose debugging output (for init)
   --detach                     Run batch provisioning in background and detach immediately
+  --tg                         Push fetched links / health board to Telegram (for link)
   --region <region>            Specify AWS region (for init-aws, destroy-aws)
   --count <N>                  Specify node count for AWS initialization (Max: 20)
   --key-pair <name>            Specify AWS key pair name (for init-aws)
@@ -41,6 +43,7 @@ EXAMPLES:
   ./cnsr.sh init-aws aws-node --region ap-northeast-1 --count 3  # Provision 3 AWS nodes
   ./cnsr.sh init-aws -f jp_aws-lightsail --count 3 # Batch provision from preset
   ./cnsr.sh init-aws -f jp_aws-lightsail --count 3 --detach # Detached batch deploy (safe to close terminal)
+  ./cnsr.sh link "jp_aws-lightsail-*"              # Fetch aggregated node configs
   ./cnsr.sh destroy-aws "jp_aws-lightsail-*" --region ap-northeast-1 # Batch destroy nodes
   ./cnsr.sh test-tg sg_aws                         # Preview Telegram alert samples
   ./cnsr.sh check sg_aws                           # Full node health check
@@ -60,7 +63,8 @@ Snack Connoisseur (cnsr)
   init-aws -f <模版预设>        根据地区预设模版批量开机 (如 -f jp_aws-lightsail --count 3)
   destroy-aws <别名|通配符>    销毁 AWS 实例与静态 IP，清理本地 SSH 配置 (必须: --region)
   check <别名>                 全方位健康体检：延迟测评、SNI质量、内核与容器
-  update <别名>                组件全量热更新：平滑同步最新垫片与脱敏凭据
+  link <别名|通配符>           批量抓取节点订阅链接与 QX 配置 (选项: --tg, --batch)
+  update <别名|通配符>         组件全量热更新：平滑同步最新垫片与脱敏凭据
   rotate-sni <别名>            强制指纹轮换：重置 UUID、X25519 密钥、ShortID 与 SNI
   rotate-dns <别名>            主动域变换：调用 Cloudflare API 刷新大厂内网级二级域名
   rotate-ip <别名>             终极断臂求生：AWS Lightsail 自动换绑静态 IP 并自愈
@@ -73,6 +77,7 @@ Snack Connoisseur (cnsr)
   --harden                     (用于 init) 启用高强度系统加固与防爆破防火墙
   --debug                      (用于 init) 开启底层详细调试安装日志 (单台逐个同步执行)
   --detach                     (用于 init-aws) 启用脱机模式，转入后台运行并可安全退出终端
+  --tg                         (用于 link) 将聚合订阅与体检看板同步推送到 Telegram
   --region <region>            (用于 init-aws, destroy-aws) 指定 AWS 区域
   --count <N>                  (用于 init-aws) 指定一次性部署的 AWS 节点数量 (最大上限: 20)
   --key-pair <名称>            (用于 init-aws) 指定 AWS 云端公钥名称
@@ -84,9 +89,11 @@ Snack Connoisseur (cnsr)
   ./cnsr.sh init-aws aws-node --region ap-northeast-1 --count 3 # 一次性部署 3 台 AWS 节点
   ./cnsr.sh init-aws -f jp_aws-lightsail --count 3 # 从预设模版批量拉起 3 台日本节点
   ./cnsr.sh init-aws -f jp_aws-lightsail --count 3 --detach # 脱机批量拉起 (可直接关闭终端)
+  ./cnsr.sh link "jp_aws-lightsail-*"              # 聚合提取所有节点的订阅链接
   ./cnsr.sh destroy-aws "jp_aws-lightsail-*" --region ap-northeast-1 # 批量清理实例与本地 SSH
   ./cnsr.sh test-tg sg_aws                         # 触发 Telegram 样张预览
   ./cnsr.sh check sg_aws                           # 全面体检节点质量
+  ./cnsr.sh update "jp_aws-lightsail-*"            # 批量热更新所有节点组件
   ./cnsr.sh test-sni sg_aws                        # 仅评测高分域名
   ./cnsr.sh lang zh                                # 切换系统语言为中文
 EOF
