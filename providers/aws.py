@@ -75,17 +75,6 @@ def create_instance(args=None, **kwargs):
         return results[0]
     return results
 
-def get_instance_ip(args=None, **kwargs):
-    if args is not None:
-        instance_name = getattr(args, 'alias', None)
-        region = getattr(args, 'region', None)
-    else:
-        instance_name = kwargs.get("instance_name")
-        region = kwargs.get("region")
-        
-    client = boto3.client("lightsail", region_name=region)
-    resp = client.get_instance(instanceName=instance_name)
-    return resp["instance"].get("publicIpAddress", "")
 
 def rotate_ip(args=None, **kwargs):
     if args is not None:

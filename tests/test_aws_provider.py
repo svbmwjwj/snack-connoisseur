@@ -196,21 +196,6 @@ class TestAwsProviderOpenPort:
         assert res is True or (isinstance(res, dict) and res.get("status") == "success")
 
 
-class TestAwsProviderQuery:
-    """Tests for querying Lightsail instances and IPs."""
-
-    @patch("providers.aws.boto3.client")
-    def test_get_instance_ip(self, mock_boto):
-        from providers.aws import get_instance_ip
-
-        mock_client = MagicMock()
-        mock_boto.return_value = mock_client
-        mock_client.get_instance.return_value = {
-            "instance": {"name": "snack-aws-1", "publicIpAddress": "198.51.100.12"}
-        }
-
-        ip = get_instance_ip(instance_name="snack-aws-1", region="ap-northeast-1")
-        assert ip == "198.51.100.12"
 
 
 class TestAwsProviderCli:
