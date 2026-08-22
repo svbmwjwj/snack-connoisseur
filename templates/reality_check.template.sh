@@ -101,42 +101,62 @@ echo "=========================================="
 echo "🩺 开始执行节点体检: $SSH_ALIAS"
 echo "=========================================="
 
-# 1. 网络联通性能
-echo "📡 测试网络出站延迟..."
+# 1. 网络连通性能 (Inbound / Outbound)
+echo "📡 测试双向网络连通性能..."
 
 do_ping() {
     ( res=$(ping -c 3 -W 1 "$1" 2>/dev/null | tail -1 | awk '{print $4}' | cut -d '/' -f 2)
       [[ "$res" =~ ^[0-9] ]] && echo "${res} ms" > "/tmp/ping_$2" || echo "Timeout" > "/tmp/ping_$2" ) &
 }
 
-# 批量发起并发 Ping
+# 批量发起并发 Ping (国内主流 BGP 骨干 + 海外主流 CDN/DNS)
 declare -A IPs=(
-    [cf]="1.1.1.1" [gg]="8.8.8.8"
-    [bj_ct]="202.96.199.133" [bj_cu]="202.106.50.1" [bj_cm]="211.136.25.153"
-    [sh_ct]="202.96.209.133" [sh_cu]="210.22.97.1" [sh_cm]="211.136.112.50"
-    [sz_ct]="202.96.134.133" [sz_cu]="210.21.196.6" [sz_cm]="120.196.165.24"
+    [out_cf]="1.1.1.1" [out_gg]="8.8.8.8"
+    [in_ali]="223.5.5.5" [in_tx]="119.29.29.29"
+    [in_bd]="220.181.38.148" [in_114]="114.114.114.114"
 )
 for k in "${!IPs[@]}"; do do_ping "${IPs[$k]}" "$k"; done
 wait
 
-# 取回结果并清理
+# 取回结果并统计
 get_p() { cat "/tmp/ping_$1" 2>/dev/null || echo "Timeout"; }
+
+IN_ALI=$(get_p in_ali)
+IN_TX=$(get_p in_tx)
+IN_BD=$(get_p in_bd)
+IN_114=$(get_p in_114)
+OUT_CF=$(get_p out_cf)
+OUT_GG=$(get_p out_gg)
+
+IN_TIMEOUTS=0
+[ "$IN_ALI" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
+[ "$IN_TX" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
+[ "$IN_BD" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
+[ "$IN_114" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
+
+OUT_TIMEOUTS=0
+[ "$OUT_CF" = "Timeout" ] && ((OUT_TIMEOUTS++)) || true
+[ "$OUT_GG" = "Timeout" ] && ((OUT_TIMEOUTS++)) || true
+
 if [ "$CNSR_LANG" = "en" ]; then
-PING_REPORT="- *Beijing (CT/CU/CM)*: $(get_p bj_ct) / $(get_p bj_cu) / $(get_p bj_cm)
-- *Shanghai (CT/CU/CM)*: $(get_p sh_ct) / $(get_p sh_cu) / $(get_p sh_cm)
-- *Shenzhen (CT/CU/CM)*: $(get_p sz_ct) / $(get_p sz_cu) / $(get_p sz_cm)
-- *Global (Cloudflare/Google)*: $(get_p cf) / $(get_p gg)"
+PING_REPORT="🇨🇳 *China Inbound (BGP / Backbone)*
+- *Ali / Tencent*: ${IN_ALI} / ${IN_TX}
+- *Baidu / 114DNS*: ${IN_BD} / ${IN_114}
+
+🌐 *Global Outbound Connectivity*
+- *Cloudflare / Google*: ${OUT_CF} / ${OUT_GG}"
 else
-PING_REPORT="- *北京 (电信/联通/移动)*: $(get_p bj_ct) / $(get_p bj_cu) / $(get_p bj_cm)
-- *上海 (电信/联通/移动)*: $(get_p sh_ct) / $(get_p sh_cu) / $(get_p sh_cm)
-- *深圳 (电信/联通/移动)*: $(get_p sz_ct) / $(get_p sz_cu) / $(get_p sz_cm)
-- *海外 (Cloudflare/Google)*: $(get_p cf) / $(get_p gg)"
+PING_REPORT="🇨🇳 *入站国内回程 (BGP / 骨干链路)*
+- 阿里 / 腾讯: ${IN_ALI} / ${IN_TX}
+- 百度 / 114DNS: ${IN_BD} / ${IN_114}
+
+🌐 *出站海外访问能力 (Global Outbound)*
+- Cloudflare / Google: ${OUT_CF} / ${OUT_GG}"
 fi
 
-echo "   - Beijing (CT/CU/CM): $(get_p bj_ct) / $(get_p bj_cu) / $(get_p bj_cm)"
-echo "   - Shanghai (CT/CU/CM): $(get_p sh_ct) / $(get_p sh_cu) / $(get_p sh_cm)"
-echo "   - Shenzhen (CT/CU/CM): $(get_p sz_ct) / $(get_p sz_cu) / $(get_p sz_cm)"
-echo "   - Global (CF/GG): $(get_p cf) / $(get_p gg)"
+echo "   - [Inbound] Ali / Tencent: ${IN_ALI} / ${IN_TX}"
+echo "   - [Inbound] Baidu / 114DNS: ${IN_BD} / ${IN_114}"
+echo "   - [Outbound] CF / Google: ${OUT_CF} / ${OUT_GG}"
 
 rm -f /tmp/ping_*
 
@@ -255,9 +275,13 @@ fi
 # 计算总评结论
 CONCLUSION="🟢 Normal"
 if [[ "$DOMAIN_STATUS" == *"🔴"* ]] || [[ "$CONTAINER_STATUS" == *"N/A"* ]] || [[ "$CONTAINER_STATUS" == *"exited"* ]] || [[ "$SNI_CODE" == "N/A" ]]; then
-    CONCLUSION="🔴 Error"
-elif [[ "$DOMAIN_STATUS" == *"🟡"* ]] || [[ "$TFO_STATUS" == *"🟡"* ]] || [[ "$PING_CF" == "Timeout" && "$PING_GG" == "Timeout" ]]; then
-    CONCLUSION="🟡 Warning"
+    CONCLUSION="🔴 Error (Service/DNS)"
+elif [ "$OUT_TIMEOUTS" -eq 2 ]; then
+    CONCLUSION="🔴 Error (Outbound Disconnected)"
+elif [ "$IN_TIMEOUTS" -ge 3 ]; then
+    CONCLUSION="🔴 Error (China Inbound Blocked)"
+elif [[ "$DOMAIN_STATUS" == *"🟡"* ]] || [[ "$TFO_STATUS" == *"🟡"* ]] || [ "$OUT_TIMEOUTS" -gt 0 ] || [ "$IN_TIMEOUTS" -gt 0 ]; then
+    CONCLUSION="🟡 Warning (Suboptimal / Incomplete)"
 fi
 
 function detect_local_ipv6() {

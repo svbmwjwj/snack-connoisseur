@@ -184,7 +184,6 @@ ${TEST_PREFIX}🩺 *X-ray Node Health Report*
 - *Domain*: \`${host}\`
 - *DNS Status*: ${domain_status}
 
-📡 *Outbound Latency*
 ${ping_report}
 
 🎯 *SNI Status*
@@ -222,7 +221,6 @@ ${TEST_PREFIX}🩺 *X-ray 节点深度体检报告*
 - *伪装域名*: \`${host}\`
 - *解析状态*: ${domain_status}
 
-📡 *出站网络延迟*
 ${ping_report}
 
 🎯 *SNI 伪装域名状态*
