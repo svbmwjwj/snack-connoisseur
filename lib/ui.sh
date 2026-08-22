@@ -201,7 +201,8 @@ function render_bar_line() {
 function render_bar_done() {
     local step="$1"
     local summary="$2"
-    local total="$3"
-    local duration="$4"
-    printf "\r\033[2K\033[32m✔\033[0m [%s] %s (%d/%d) [耗时: %ds]\n" "$step" "$summary" "$total" "$total" "$duration"
+    local current="$3"
+    local total="$4"
+    local duration="$5"
+    printf "\r\033[2K\033[32m✔\033[0m [%s] %s (%d/%d) [耗时: %ds]\n" "$step" "$summary" "$current" "$total" "$duration"
 }

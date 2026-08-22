@@ -74,10 +74,13 @@ function generate_cf_domain() {
     local SUFFIX=$((RANDOM % 900 + 100))
     local CF_SUBDOMAIN="${PREFIX_LIST[$RANDOM % ${#PREFIX_LIST[@]}]}-v${SUFFIX}"
 
-    local CF_DOMAIN_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID" \
-        -H "Authorization: Bearer $CF_API_TOKEN" \
-        -H "Content-Type: application/json")
-    local CF_BASE_DOMAIN=$(cd "$REPO_DIR" && uv run python3 -c "
+    local CF_BASE="${CF_BASE_DOMAIN:-}"
+    if [ -z "$CF_BASE" ]; then
+        for try_cf in 1 2 3; do
+            local CF_DOMAIN_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID" \
+                -H "Authorization: Bearer $CF_API_TOKEN" \
+                -H "Content-Type: application/json")
+            CF_BASE=$(cd "$REPO_DIR" && uv run python3 -c "
 import sys, json
 try:
     data = json.loads(sys.stdin.read())
@@ -85,8 +88,15 @@ try:
 except Exception:
     pass
 " <<< "$CF_DOMAIN_RESPONSE" 2>/dev/null)
+            if [ -n "$CF_BASE" ] && [ "$CF_BASE" != "null" ]; then
+                export CF_BASE_DOMAIN="$CF_BASE"
+                break
+            fi
+            sleep 1
+        done
+    fi
 
-    if [ "$CF_BASE_DOMAIN" = "null" ] || [ -z "$CF_BASE_DOMAIN" ]; then
+    if [ "$CF_BASE" = "null" ] || [ -z "$CF_BASE" ]; then
         if [ "$CNSR_LANG" = "en" ]; then
             echo "❌ Failed to fetch Cloudflare domain! Check Token or Zone ID." >&2
         else
@@ -95,7 +105,7 @@ except Exception:
         return 1
     fi
 
-    local FULL_DOMAIN="${CF_SUBDOMAIN}.${CF_BASE_DOMAIN}"
+    local FULL_DOMAIN="${CF_SUBDOMAIN}.${CF_BASE}"
     if [ "$CNSR_LANG" = "en" ]; then
         echo "✅ Generated camouflage domain: $FULL_DOMAIN" >&2
         echo "🧹 Cleaning legacy redundant DNS records (matching IP or alias $alias)..." >&2

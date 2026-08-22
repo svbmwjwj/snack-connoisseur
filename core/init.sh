@@ -510,19 +510,54 @@ except Exception as e:
 
         DOCKER_APP_DIR="/home/$SHADOW_USER/docker-apps/xray"
     else
-        echo "⚙️ 正在安装基础依赖及 Docker..."
+        echo "⚙️ 正在等待系统就绪 (cloud-init / dpkg 解锁) 并安装基础依赖及 Docker..."
         ssh "$SSH_ALIAS" "
-          set -e
-          sudo apt-get update -y >/dev/null 2>&1 && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y jq cron curl iputils-ping dnsutils >/dev/null 2>&1
+          # 1. 智能等待 cloud-init 完成首开机初始化
+          if command -v cloud-init >/dev/null 2>&1; then
+              sudo cloud-init status --wait >/dev/null 2>&1 || true
+          fi
+
+          # 2. 轮询等待 dpkg / apt 前端锁释放 (最多等 60 秒)
+          lock_wait=0
+          while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+                sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 || \
+                sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+              sleep 1
+              lock_wait=\$((lock_wait + 1))
+              if [ \$lock_wait -ge 60 ]; then
+                  sudo killall -9 apt-get apt unattended-upgrades dpkg >/dev/null 2>&1 || true
+                  sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1 || true
+                  sudo dpkg --configure -a >/dev/null 2>&1 || true
+                  break
+              fi
+          done
+
+          # 3. 带指数退避的依赖包安装
+          for try_apt in 1 2 3; do
+              if sudo apt-get update -y >/dev/null 2>&1 && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y jq cron curl iputils-ping dnsutils >/dev/null 2>&1; then
+                  break
+              fi
+              sleep \$((try_apt * 2))
+          done
         "
     fi
 
-    # 统一安装启动 Docker 与 内核优化 (带超时熔断与 apt 自动降级)
+    # 统一安装启动 Docker 与 内核优化 (带超时重试与 apt 自动降级)
     echo "🐳 启动 X-ray 服务与定时自愈探针..."
     ssh "$SSH_ALIAS" "
       set -e
       if ! command -v docker >/dev/null 2>&1; then
-          curl -fsSL --connect-timeout 10 --max-time 60 https://get.docker.com | timeout 90 sudo sh >/dev/null 2>&1 || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 >/dev/null 2>&1 || true
+          docker_ok=false
+          for try_d in 1 2 3; do
+              if curl -fsSL --connect-timeout 10 --max-time 60 https://get.docker.com | timeout 90 sudo sh >/dev/null 2>&1; then
+                  docker_ok=true
+                  break
+              fi
+              sleep \$((try_d * 2))
+          done
+          if [ \"\$docker_ok\" = \"false\" ]; then
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2 >/dev/null 2>&1 || true
+          fi
       fi
       
       # 内核网络优化 (BBR + TCP Fast Open 3)
@@ -536,7 +571,7 @@ EOF'
       cd ${DOCKER_APP_DIR}
       sudo docker compose up -d >/dev/null 2>&1 || true
       if ! command -v crontab >/dev/null 2>&1; then if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y cron; fi; fi
-      (sudo -u \$(whoami) crontab -l 2>/dev/null | grep -v -E 'reality_rotate.sh|runner.sh'; echo '*/15 * * * * ${DOCKER_APP_DIR}/runner.sh > ${DOCKER_APP_DIR}/rotate.log 2>&1') | sudo -u \$(whoami) crontab -
+      (crontab -l 2>/dev/null | grep -v -E 'reality_rotate.sh|runner.sh'; echo '*/15 * * * * ${DOCKER_APP_DIR}/runner.sh > ${DOCKER_APP_DIR}/rotate.log 2>&1') | crontab -
     "
 
     # 执行主机防火墙策略 (UFW 规则与双栈联动)
@@ -545,12 +580,14 @@ EOF'
     fi
     
     echo "🚀 正在部署异步守护进程，接管后续的配置与测试..."
-    cp templates/async_deploy.template.sh async_deploy.sh
-    sed -i '' -e "s|PLACEHOLDER_IP|$IPV4|g" -e "s|PLACEHOLDER_ALIAS|$SSH_ALIAS|g" -e "s|/home/admin/docker-apps/xray|${DOCKER_APP_DIR}|g" async_deploy.sh 2>/dev/null || \
-    sed -i -e "s|PLACEHOLDER_IP|$IPV4|g" -e "s|PLACEHOLDER_ALIAS|$SSH_ALIAS|g" -e "s|/home/admin/docker-apps/xray|${DOCKER_APP_DIR}|g" async_deploy.sh
+    local tmp_async
+    tmp_async=$(mktemp -t "cnsr_async_${SSH_ALIAS}_XXXXXX.sh")
+    cp templates/async_deploy.template.sh "$tmp_async"
+    sed -i '' -e "s|PLACEHOLDER_IP|$IPV4|g" -e "s|PLACEHOLDER_ALIAS|$SSH_ALIAS|g" -e "s|/home/admin/docker-apps/xray|${DOCKER_APP_DIR}|g" "$tmp_async" 2>/dev/null || \
+    sed -i -e "s|PLACEHOLDER_IP|$IPV4|g" -e "s|PLACEHOLDER_ALIAS|$SSH_ALIAS|g" -e "s|/home/admin/docker-apps/xray|${DOCKER_APP_DIR}|g" "$tmp_async"
     
-    scp "${SCP_OPT[@]}" async_deploy.sh "$SSH_ALIAS":${DOCKER_APP_DIR}/async_deploy.sh
-    rm -f async_deploy.sh
+    scp "${SCP_OPT[@]}" "$tmp_async" "$SSH_ALIAS":${DOCKER_APP_DIR}/async_deploy.sh
+    rm -f "$tmp_async"
     
     echo "🎉 [$SSH_ALIAS] 阶段一：服务器基础环境搭建完成，已触发云端 IP 扫描。"
     
@@ -563,6 +600,8 @@ EOF'
         echo "💡 [提示] 您现在可以安全关闭本窗口。后续的部署与体检流程将由服务器在后台全自动接管，进度会实时推送到 Telegram。"
     fi
 
-    # 全部部署操作完成后，验证 DNS 状态并尝试升级 ~/.ssh/config 中的 HostName 为域名
-    upgrade_ssh_config_hostname "$SSH_ALIAS" "$FULL_DOMAIN"
+    # 单机模式下可升级 SSH 域名；批量编排模式下维持直连 IP 以保障 100% 连接可靠性
+    if [ "${BATCH_MODE:-false}" != "true" ]; then
+        upgrade_ssh_config_hostname "$SSH_ALIAS" "$FULL_DOMAIN"
+    fi
 }

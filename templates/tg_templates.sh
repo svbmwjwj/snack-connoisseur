@@ -159,8 +159,12 @@ function tpl_health_full() {
     local container_uptime="${20}"
     local flow="${21}"
     local uuid_masked="${22}"
-    local pub_masked="${23}"
     local sid="${24}"
+    local load_avg="${25}"
+    local mem_report="${26}"
+    local disk_report="${27}"
+    local global_dns="${28}"
+    local port_listen="${29}"
 
     local display_ipv6="$ipv6"
     if [ -z "$display_ipv6" ] || [ "$display_ipv6" = "N/A" ] || [ "$display_ipv6" = "none" ]; then
@@ -183,6 +187,7 @@ ${TEST_PREFIX}🩺 *X-ray Node Health Report*
 - *IPv6*: \`${display_ipv6}\`
 - *Domain*: \`${host}\`
 - *DNS Status*: ${domain_status}
+- *Global DNS (1.1.1.1)*: ${global_dns}
 
 ${ping_report}
 
@@ -197,12 +202,16 @@ ${ping_report}
 
 💻 *System & Kernel*
 - *Uptime*: ${sys_uptime}
+- *Load Avg*: ${load_avg}
+- *Memory*: ${mem_report}
+- *Disk (Root)*: ${disk_report}
 - *TCP Fast Open*: ${tfo_status}
 - *Congestion Control*: ${bbr_status}
 - *UDP Forward*: ${udp_status}
 
 🐳 *Container & Proxy*
 - *Container*: ${container_status} (${container_uptime})
+- *Port 443 Listen*: ${port_listen}
 - *Flow*: \`${flow}\`
 - *UUID*: \`${uuid_masked}\`
 - *Public Key*: \`${pub_masked}\`
@@ -220,6 +229,7 @@ ${TEST_PREFIX}🩺 *X-ray 节点深度体检报告*
 - *IPv6 地址*: \`${display_ipv6}\`
 - *伪装域名*: \`${host}\`
 - *解析状态*: ${domain_status}
+- *全球解析 (1.1.1.1)*: ${global_dns}
 
 ${ping_report}
 
@@ -234,12 +244,16 @@ ${ping_report}
 
 💻 *系统与内核模块*
 - *运行时间*: ${sys_uptime}
+- *系统负载*: ${load_avg}
+- *可用内存*: ${mem_report}
+- *根目录磁盘*: ${disk_report}
 - *TCP Fast Open*: ${tfo_status}
 - *拥塞控制*: ${bbr_status}
 - *UDP 转发*: ${udp_status}
 
 🐳 *容器与代理核心*
 - *容器状态*: ${container_status} (${container_uptime})
+- *443 端口监听*: ${port_listen}
 - *流控算法*: \`${flow}\`
 - *用户 UUID*: \`${uuid_masked}\`
 - *Reality 公钥*: \`${pub_masked}\`

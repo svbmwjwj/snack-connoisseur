@@ -3,7 +3,7 @@
 
 # AI Agent & Assistant configurations
 .agents/
-.superpowers/
+.superpowers
 
 # Dynamically generated local scripts & temporary files
 reality_check.sh
@@ -23,3 +23,4 @@ logs/
 .DS_Store
 scratch/
 
+docs

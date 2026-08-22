@@ -402,6 +402,31 @@ function provision_batch_group() {
     local BATCH_TS=$(date +'%Y-%m-%d %H:%M:%S')
     local BATCH_ID=$(date +'%Y%m%d%H%M%S')
 
+    local REGION_LABEL="$grp_region"
+    case "$grp_region" in
+        ap-northeast-1) REGION_LABEL="ap-northeast-1 (日本东京)" ;;
+        ap-northeast-2) REGION_LABEL="ap-northeast-2 (韩国首尔)" ;;
+        ap-northeast-3) REGION_LABEL="ap-northeast-3 (日本大阪)" ;;
+        ap-southeast-1) REGION_LABEL="ap-southeast-1 (新加坡)" ;;
+        ap-southeast-2) REGION_LABEL="ap-southeast-2 (澳大利亚悉尼)" ;;
+        ap-south-1) REGION_LABEL="ap-south-1 (印度孟买)" ;;
+        us-east-1) REGION_LABEL="us-east-1 (美国弗吉尼亚)" ;;
+        us-east-2) REGION_LABEL="us-east-2 (美国俄亥俄)" ;;
+        us-west-2) REGION_LABEL="us-west-2 (美国俄勒冈)" ;;
+        eu-central-1) REGION_LABEL="eu-central-1 (德国法兰克福)" ;;
+        eu-west-1) REGION_LABEL="eu-west-1 (爱尔兰)" ;;
+        eu-west-2) REGION_LABEL="eu-west-2 (英国伦敦)" ;;
+        ca-central-1) REGION_LABEL="ca-central-1 (加拿大中部)" ;;
+    esac
+
+    local BUNDLE_LABEL="$grp_bundle"
+    case "$grp_bundle" in
+        nano_3_0|nano_2_0) BUNDLE_LABEL="${grp_bundle} (0.5G/2vCPU)" ;;
+        micro_3_0|micro_2_0) BUNDLE_LABEL="${grp_bundle} (1G/2vCPU)" ;;
+        small_3_0|small_2_0) BUNDLE_LABEL="${grp_bundle} (2G/2vCPU)" ;;
+        medium_3_0|medium_2_0) BUNDLE_LABEL="${grp_bundle} (4G/2vCPU)" ;;
+    esac
+
     # Stage 1: 批量开机通知 (清晰独立字段)
     if [ "$CNSR_DETACHED_CHILD" != "1" ]; then
         local tpl_name="${CONFIG_INPUT:-$grp_alias}"
@@ -409,10 +434,9 @@ function provision_batch_group() {
 • *任务编号*: \`${BATCH_ID}\`
 • *启动时间*: \`${BATCH_TS}\`
 • *任务模版*: \`${tpl_name}\`
-• *节点数量*: \`${grp_count}\` 台 (\`${grp_alias}-1\` ~ \`${grp_count}\`)
-• *目标区域*: \`${grp_region}\`
-• *规格套餐*: \`${grp_bundle}\`
-• *系统镜像*: \`${grp_blueprint}\`"
+• *节点规模*: \`${grp_count}\` 台 (\`${grp_alias}-1\` ~ \`${grp_count}\`)
+• *目标区域*: \`${REGION_LABEL}\`
+• *规格镜像*: \`${BUNDLE_LABEL}\` | \`${grp_blueprint}\`"
     fi
 
     local BATCH_TMP_DIR=$(mktemp -d)
@@ -487,7 +511,7 @@ except Exception:
         done
         local end_time_p1=$(date +%s)
         local elapsed_p1=$((end_time_p1 - start_time_p1))
-        render_bar_done "1/2" "AWS 实例创建与多可用区 IP 就绪" "$p1_done" "$elapsed_p1"
+        render_bar_done "1/2" "AWS 实例创建与多可用区 IP 就绪" "$p1_done" "$grp_count" "$elapsed_p1"
     else
         wait
     fi
@@ -551,14 +575,26 @@ for n in nodes:
     # Stage 2: 统一汇总就绪看板
     send_batch_tg_notify "☁️ *AWS 批量实例就绪看板* ($created_count/$grp_count)
 • *任务编号*: \`${BATCH_ID}\`
-• *目标区域*: \`${grp_region}\`
-• *可用区分布统计*:
+• *目标区域*: \`${REGION_LABEL}\`
+• *可用区分布*:
 $AZ_TEXT
 
-📋 *节点与 IP 分配详情*:
+📋 *节点与公网 IP 分配*:
 $NODES_TEXT
 
-⚙️ 正在并行连接各节点装配基础环境与 X-ray 服务..."
+⚙️ 正在并行向各节点装配基础环境与 X-ray 服务..."
+
+    # 预加载 Cloudflare 主域名，防止高并发下频繁请求 CF API
+    if [ -n "$CF_API_TOKEN" ] && [ -n "$CF_ZONE_ID" ] && [ -z "$CF_BASE_DOMAIN" ]; then
+        local cf_resp
+        cf_resp=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID" \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            -H "Content-Type: application/json" 2>/dev/null || true)
+        CF_BASE_DOMAIN=$(python3 -c "import sys, json; print(json.loads(sys.argv[1]).get('result', {}).get('name', ''))" "$cf_resp" 2>/dev/null || true)
+        if [ -n "$CF_BASE_DOMAIN" ]; then
+            export CF_BASE_DOMAIN
+        fi
+    fi
 
     # Phase 2: 并行向各机器装配基础环境 (core/init.sh)
     if [ "$DEBUG_MODE" = "true" ]; then
@@ -601,7 +637,7 @@ $NODES_TEXT
     done
 
     if [ "$DEBUG_MODE" != "true" ]; then
-        local timeout_limit=180
+        local timeout_limit=300
         while true; do
             local p2_done=$(ls -1 "$BATCH_TMP_DIR"/*.done 2>/dev/null | wc -l | xargs)
             local p2_err=$(ls -1 "$BATCH_TMP_DIR"/*.err 2>/dev/null | wc -l | xargs)
@@ -628,7 +664,7 @@ $NODES_TEXT
         done
         local end_time_p2=$(date +%s)
         local elapsed_p2=$((end_time_p2 - start_time_p2))
-        render_bar_done "2/2" "节点基础环境装配完成" "$p2_done" "$elapsed_p2"
+        render_bar_done "2/2" "节点基础环境装配完成" "$p2_done" "$created_count" "$elapsed_p2"
         echo ""
         
         if [ "$p2_err" -gt 0 ]; then
@@ -643,18 +679,42 @@ $NODES_TEXT
     fi
 
     local done_count=$(ls -1 "$BATCH_TMP_DIR"/*.done 2>/dev/null | wc -l | xargs)
+    local err_count=$((grp_count - done_count))
 
     # Stage 3: 最终完工总览
-    send_batch_tg_notify "🎉 *AWS 批量部署全部完成* ($done_count/$grp_count)
+    local title="🎉 *AWS 批量部署全部完成*"
+    local result_text="✅ $done_count 台全部就绪"
+    if [ "$err_count" -gt 0 ]; then
+        title="⚠️ *AWS 批量部署部分完成*"
+        result_text="⚠️ $done_count 成功, $err_count 失败/超时"
+    fi
+
+    send_batch_tg_notify "$title ($done_count/$grp_count)
 • *任务编号*: \`${BATCH_ID}\`
 • *任务模版*: \`${CONFIG_INPUT:-$grp_alias}\`
-• *部署结果*: $done_count 台全部成功
-• *目标区域*: \`${grp_region}\`
+• *部署结果*: $result_text
+• *目标区域*: \`${REGION_LABEL}\`
 • *本地凭据*: 已全部写入 \`~/.ssh/config\`
-• *云端体检*: GitHub Actions 扫描已全量触发
-💡 节点集群已自治进入 15 分钟自动化轮换与自愈生命周期。您可通过 \`./cnsr.sh link ${grp_alias}-*\` 一键提取节点订阅代码。"
+• *云端扫描*: GitHub Actions 触发就绪
+💡 节点集群已自治进入 15 分钟自动化轮换与自愈生命周期。节点订阅链接已紧随其后拆分推送。"
+
+    local done_aliases=()
+    for f in "$BATCH_TMP_DIR"/*.done; do
+        [ -f "$f" ] || continue
+        local a_name=$(basename "$f" .done)
+        done_aliases+=("$a_name")
+    done
 
     rm -rf "$BATCH_TMP_DIR"
+
+    # Auto-link extraction (精准传递确定成功的节点名单)
+    if [ ${#done_aliases[@]} -gt 0 ]; then
+        echo -e "\n🔄 正在自动提取节点订阅链接 (Extracting subscription links)..."
+        if [ -f "$SCRIPT_DIR/link.sh" ]; then
+            source "$SCRIPT_DIR/link.sh"
+            module_link "${done_aliases[@]}"
+        fi
+    fi
 }
 
 # 模版智能寻路解析

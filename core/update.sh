@@ -194,8 +194,8 @@ function sync_node_scripts() {
 }
 
 function module_update() {
-    local alias="${1:-$SSH_ALIAS}"
-    if [ -z "$alias" ]; then
+    local first_arg="${1:-$SSH_ALIAS}"
+    if [ $# -eq 0 ] || [ -z "$first_arg" ]; then
         if [ "$CNSR_LANG" = "en" ]; then
             echo "❌ Error: Please specify node alias. (Usage: ./cnsr.sh update <alias>)"
         else
@@ -204,15 +204,45 @@ function module_update() {
         return 1
     fi
 
-    sync_node_scripts "$alias"
-    local sync_status=$?
-    if [ $sync_status -ne 0 ]; then
-        return $sync_status
+    local target_aliases=()
+    local input_args=("$@")
+    [ ${#input_args[@]} -eq 0 ] && input_args=("$SSH_ALIAS")
+
+    for arg in "${input_args[@]}"; do
+        if [[ "$arg" == *"*"* ]]; then
+            local base_pattern="${arg%\*}"
+            while IFS= read -r line; do
+                if [[ "$line" == Host\ $base_pattern* ]]; then
+                    local found_alias=$(echo "$line" | awk '{print $2}')
+                    target_aliases+=("$found_alias")
+                fi
+            done < <(grep -i "^Host " "$SSH_CONFIG_PATH" 2>/dev/null || true)
+        else
+            target_aliases+=("$arg")
+        fi
+    done
+
+    if [ ${#target_aliases[@]} -gt 0 ]; then
+        IFS=$'\n' target_aliases=($(sort -V -u <<<"${target_aliases[*]}"))
+        unset IFS
     fi
 
-    if [ "$CNSR_LANG" = "en" ]; then
-        echo "🎉 Node [$alias] components and sanitized credentials hot-updated successfully!"
-    else
-        echo "🎉 节点 [$alias] 全量组件与脱敏凭据热更新完成！"
+    if [ ${#target_aliases[@]} -eq 0 ]; then
+        echo "❌ 未找到任何有效的目标节点。"
+        return 1
     fi
+
+    local has_err=0
+    for cur_alias in "${target_aliases[@]}"; do
+        if ! sync_node_scripts "$cur_alias"; then
+            has_err=1
+        else
+            if [ "$CNSR_LANG" = "en" ]; then
+                echo "🎉 Node [$cur_alias] components and sanitized credentials hot-updated successfully!"
+            else
+                echo "🎉 节点 [$cur_alias] 全量组件与脱敏凭据热更新完成！"
+            fi
+        fi
+    done
+    return $has_err
 }

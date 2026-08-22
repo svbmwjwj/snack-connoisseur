@@ -167,10 +167,43 @@ function check_sni_health() {
     fi
 }
 
-echo "🔍 [1/5] 正在执行 3 级防误判健康检查 (当前 SNI: ${CURRENT_SNI:-无})..."
+echo "🔍 [0/5] 正在执行前置宿主机防假死安检..."
+DISK_PERCENT=$(df -h / | awk 'NR==2 {print $5}' | tr -d '%')
+if [ -n "$DISK_PERCENT" ] && [ "$DISK_PERCENT" -ge 85 ]; then
+    echo "  ⚠️ 警告: 磁盘占用率达 ${DISK_PERCENT}%，无需手动清理，已由 Docker 原生限制 (max-size=100m) 接管。"
+fi
+
+PORT_TCP=$(sudo ss -nltp 2>/dev/null | grep ':443 ' || echo "")
+CONTAINER_STATUS=$(sudo docker inspect -f '{{.State.Status}}' xray 2>/dev/null || echo "N/A")
+
+if [ "$CONTAINER_STATUS" != "running" ] || [ -z "$PORT_TCP" ]; then
+    echo "  ⚠️ 发现 X-ray 容器异常 (Status: $CONTAINER_STATUS) 或端口 443 未监听！尝试原生重启自愈..."
+    cd "$DOCKER_DIR" || exit 1
+    sudo docker compose restart xray >/dev/null 2>&1
+    sleep 5
+    PORT_TCP=$(sudo ss -nltp 2>/dev/null | grep ':443 ' || echo "")
+    if [ -n "$PORT_TCP" ]; then
+        echo "  ✅ 容器与 443 端口已成功恢复！"
+    else
+        echo "  ❌ 重启失败，将继续执行全面轮换。"
+    fi
+fi
+
+if [ "$FORCE_ROTATE" != true ] && [ -n "$CURRENT_SNI" ] && [ -n "$PORT_TCP" ]; then
+    echo "  -> 测试本地 REALITY 流量穿透回路..."
+    LOCAL_CURL=$(curl -s -k -I --connect-timeout 5 --resolve "$CURRENT_SNI:443:127.0.0.1" "https://$CURRENT_SNI" 2>/dev/null || echo "")
+    if ! echo "$LOCAL_CURL" | grep -q "HTTP/"; then
+        echo "  ⚠️ 本地端到端穿透失败 (目标 SNI 无响应或引擎卡死)！跳过外网探测，强行轮换。"
+        FORCE_ROTATE=true
+    else
+        echo "  ✅ 本地回路穿透正常。"
+    fi
+fi
+
+echo "🔍 [1/5] 正在执行外部 GFW 3 级防误判检查 (当前 SNI: ${CURRENT_SNI:-无})..."
 
 if [ "$FORCE_ROTATE" = true ]; then
-    echo "⚠️ 收到强制更换指令 (--force)，直接触发轮换！"
+    echo "⚠️ 收到强制更换或本地回路断裂，直接触发轮换！"
     NEED_ROTATE=true
 elif [ -z "$CURRENT_SNI" ]; then
     echo "⚠️ 配置文件中无可用 SNI，触发轮换！"
@@ -368,7 +401,7 @@ if [ -z "$NEW_SNI" ]; then
     exit 1
 fi
 
-NEW_SNI=$(echo "$NEW_SNI" | tr -d '\r\n"' | sed 's/www\.//g')
+NEW_SNI=$(echo "$NEW_SNI" | tr -d '\r\n"')
 echo "✅ 锁定新回落域名 (SNI): $NEW_SNI"
 
 echo "🔑 [4/5] 重新生成 X25519 密钥对、UUID 和 ShortID..."

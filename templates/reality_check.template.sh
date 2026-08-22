@@ -118,7 +118,6 @@ do_ping() {
 declare -A IPs=(
     [out_cf]="1.1.1.1" [out_gg]="8.8.8.8"
     [in_ali]="223.5.5.5" [in_tx]="119.29.29.29"
-    [in_bd]="220.181.38.148" [in_114]="114.114.114.114"
 )
 for k in "${!IPs[@]}"; do do_ping "${IPs[$k]}" "$k"; done
 wait
@@ -128,16 +127,12 @@ get_p() { cat "/tmp/ping_$1" 2>/dev/null || echo "Timeout"; }
 
 IN_ALI=$(get_p in_ali)
 IN_TX=$(get_p in_tx)
-IN_BD=$(get_p in_bd)
-IN_114=$(get_p in_114)
 OUT_CF=$(get_p out_cf)
 OUT_GG=$(get_p out_gg)
 
 IN_TIMEOUTS=0
 [ "$IN_ALI" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
 [ "$IN_TX" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
-[ "$IN_BD" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
-[ "$IN_114" = "Timeout" ] && ((IN_TIMEOUTS++)) || true
 
 OUT_TIMEOUTS=0
 [ "$OUT_CF" = "Timeout" ] && ((OUT_TIMEOUTS++)) || true
@@ -147,8 +142,6 @@ if [ "$CNSR_LANG" = "en" ]; then
 PING_REPORT="🇨🇳 *China Inbound (BGP / Backbone)*
 - *Ali BGP*: ${IN_ALI}
 - *Tencent BGP*: ${IN_TX}
-- *Baidu Backbone*: ${IN_BD}
-- *114DNS Anycast*: ${IN_114}
 
 🌐 *Global Outbound Connectivity*
 - *Google DNS (8.8.8.8)*: ${OUT_GG}
@@ -157,8 +150,6 @@ else
 PING_REPORT="🇨🇳 *入站国内回程 (BGP / 骨干链路)*
 - 阿里 BGP: ${IN_ALI}
 - 腾讯 BGP: ${IN_TX}
-- 百度骨干: ${IN_BD}
-- 114 骨干: ${IN_114}
 
 🌐 *出站海外访问能力 (Global Outbound)*
 - Google DNS (8.8.8.8): ${OUT_GG}
@@ -167,8 +158,6 @@ fi
 
 echo "   - [Inbound] 阿里 BGP: ${IN_ALI}"
 echo "   - [Inbound] 腾讯 BGP: ${IN_TX}"
-echo "   - [Inbound] 百度骨干: ${IN_BD}"
-echo "   - [Inbound] 114 骨干: ${IN_114}"
 echo "   - [Outbound] Google DNS: ${OUT_GG}"
 echo "   - [Outbound] Cloudflare: ${OUT_CF}"
 
@@ -185,6 +174,18 @@ else
     DOMAIN_STATUS="🟡 Proxy/Abnormal ($RESOLVED_IP)"
 fi
 echo "   - $SERVER_HOST 解析至: ${RESOLVED_IP:-N/A} ($DOMAIN_STATUS)"
+
+GLOBAL_RESOLVE=$(dig @1.1.1.1 +short +time=3 +tries=2 "$SERVER_HOST" A 2>/dev/null | tail -n1)
+if [ -n "$GLOBAL_RESOLVE" ]; then
+    echo "   - $SERVER_HOST 全球 DNS (1.1.1.1): $GLOBAL_RESOLVE"
+    if [ "$GLOBAL_RESOLVE" != "$TARGET_IP" ]; then
+        GLOBAL_STATUS="🟡 Mismatch ($GLOBAL_RESOLVE)"
+    else
+        GLOBAL_STATUS="🟢 OK"
+    fi
+else
+    GLOBAL_STATUS="🔴 Query Failed"
+fi
 
 # 3. 提取当前 SNI 状态
 echo "🎯 检测当前 SNI 状态..."
@@ -244,6 +245,27 @@ echo "   - 当前 SNI: $CURRENT_SNI ($SNI_CODE / CDN: $SNI_CDN / Rating: $SNI_RA
 # 4. 服务器系统状态
 echo "💻 检查服务器内核与运行状态..."
 SYS_UPTIME=$(uptime -p 2>/dev/null | sed 's/up //')
+
+LOAD_AVG=$(cat /proc/loadavg 2>/dev/null | awk '{print $1", "$2", "$3}')
+MEM_AVAIL=$(free -m 2>/dev/null | awk '/Mem:/ {print $7}')
+MEM_TOTAL=$(free -m 2>/dev/null | awk '/Mem:/ {print $2}')
+if [ -n "$MEM_TOTAL" ] && [ "$MEM_TOTAL" -gt 0 ]; then
+    MEM_PERCENT=$(( (MEM_TOTAL - MEM_AVAIL) * 100 / MEM_TOTAL ))
+    MEM_REPORT="${MEM_AVAIL}MB 可用 / ${MEM_TOTAL}MB (${MEM_PERCENT}%)"
+else
+    MEM_REPORT="N/A"
+fi
+
+DISK_USED=$(df -h / | awk 'NR==2 {print $3}')
+DISK_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
+DISK_PERCENT=$(df -h / | awk 'NR==2 {print $5}')
+DISK_PERCENT_NUM=$(echo "$DISK_PERCENT" | tr -d '%')
+if [ -n "$DISK_PERCENT_NUM" ] && [ "$DISK_PERCENT_NUM" -ge 85 ]; then
+    DISK_REPORT="🔴 ${DISK_USED} / ${DISK_TOTAL} (${DISK_PERCENT})"
+else
+    DISK_REPORT="🟢 ${DISK_USED} / ${DISK_TOTAL} (${DISK_PERCENT})"
+fi
+
 TCP_FASTOPEN=$(cat /proc/sys/net/ipv4/tcp_fastopen 2>/dev/null || echo "N/A")
 if [ "$TCP_FASTOPEN" = "3" ]; then
     TFO_STATUS="🟢 Enabled (3)"
@@ -254,7 +276,10 @@ fi
 # 检查 UDP Relay 兼容性 (BBR / UFW)
 BBR_STATUS=$(cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null | grep -q bbr && echo "🟢 BBR" || echo "🟡 Cubic/Reno")
 UDP_STATUS="${UDP_STATUS:-🟢 Enabled}"
-echo "   - 系统运行时间: $SYS_UPTIME"
+echo "   - 运行时间: $SYS_UPTIME"
+echo "   - 系统负载: ${LOAD_AVG:-N/A}"
+echo "   - 可用内存: $MEM_REPORT"
+echo "   - 根目录磁盘: $DISK_REPORT"
 echo "   - TCP Fast Open: $TFO_STATUS"
 echo "   - 拥塞控制模块: $BBR_STATUS"
 echo "   - UDP 转发支持: $UDP_STATUS"
@@ -265,7 +290,20 @@ cd "$DOCKER_DIR"
 CONTAINER_STATUS=$(sudo docker inspect -f '{{.State.Status}}' xray 2>/dev/null || echo "N/A")
 CONTAINER_UPTIME=$(sudo docker inspect -f '{{.State.StartedAt}}' xray 2>/dev/null | cut -d'.' -f1 || echo "N/A")
 
+PORT_TCP=$(sudo ss -nltp 2>/dev/null | grep ':443 ' >/dev/null && echo "TCP" || echo "")
+PORT_UDP=$(sudo ss -nlup 2>/dev/null | grep ':443 ' >/dev/null && echo "UDP" || echo "")
+if [ -n "$PORT_TCP" ] && [ -n "$PORT_UDP" ]; then
+    PORT_LISTEN="🟢 TCP & UDP"
+elif [ -n "$PORT_TCP" ]; then
+    PORT_LISTEN="🟡 TCP Only"
+elif [ -n "$PORT_UDP" ]; then
+    PORT_LISTEN="🟡 UDP Only"
+else
+    PORT_LISTEN="🔴 Not Listening"
+fi
+
 echo "   - 容器状态: $CONTAINER_STATUS ($CONTAINER_UPTIME)"
+echo "   - 443 端口监听: $PORT_LISTEN"
 
 echo "🔑 读取 X-ray 核心参数..."
 XRAY_UUID=$(jq -r '.inbounds[0].settings.clients[0].id // "N/A"' "$CONFIG_FILE")
@@ -288,11 +326,11 @@ fi
 
 # 计算总评结论
 CONCLUSION="🟢 Normal"
-if [[ "$DOMAIN_STATUS" == *"🔴"* ]] || [[ "$CONTAINER_STATUS" == *"N/A"* ]] || [[ "$CONTAINER_STATUS" == *"exited"* ]] || [[ "$SNI_CODE" == "N/A" ]]; then
-    CONCLUSION="🔴 Error (Service/DNS)"
+if [[ "$DOMAIN_STATUS" == *"🔴"* ]] || [[ "$CONTAINER_STATUS" == *"N/A"* ]] || [[ "$CONTAINER_STATUS" == *"exited"* ]] || [[ "$SNI_CODE" == "N/A" ]] || [[ "$SNI_CODE" == *"不可访问"* ]] || [[ "$SNI_BASE" == *"✗"* ]] || [[ "$SNI_CERT" == *"无效"* ]]; then
+    CONCLUSION="🔴 Error (Service/DNS/SNI)"
 elif [ "$OUT_TIMEOUTS" -eq 2 ]; then
     CONCLUSION="🔴 Error (Outbound Disconnected)"
-elif [ "$IN_TIMEOUTS" -ge 3 ]; then
+elif [ "$IN_TIMEOUTS" -ge 2 ]; then
     CONCLUSION="🔴 Error (China Inbound Blocked)"
 elif [[ "$DOMAIN_STATUS" == *"🟡"* ]] || [[ "$TFO_STATUS" == *"🟡"* ]] || [ "$OUT_TIMEOUTS" -gt 0 ] || [ "$IN_TIMEOUTS" -gt 0 ]; then
     CONCLUSION="🟡 Warning (Suboptimal / Incomplete)"
@@ -314,17 +352,17 @@ function detect_local_ipv6() {
     echo "$detected_ip"
 }
 
+if [ -z "$TARGET_IPV6" ] || [ "$TARGET_IPV6" = "none" ] || [ "$TARGET_IPV6" = "PLACEHOLDER_""IPV6" ] || [ "$TARGET_IPV6" = "N/A" ]; then
+    TARGET_IPV6=$(detect_local_ipv6)
+fi
+DISPLAY_IPV4="$TARGET_IP"
+DISPLAY_IPV6="$TARGET_IPV6"
+if [ -z "$DISPLAY_IPV6" ] || [ "$DISPLAY_IPV6" = "none" ] || [ "$DISPLAY_IPV6" = "PLACEHOLDER_""IPV6" ]; then
+    DISPLAY_IPV6="N/A"
+fi
+
 # 推送 Telegram
 if [ "$NOTIFY_TG" = true ] && { [ -n "$GATEWAY_URL" ] || { [ -n "$TG_BOT_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; }; }; then
-    if [ -z "$TARGET_IPV6" ] || [ "$TARGET_IPV6" = "none" ] || [ "$TARGET_IPV6" = "PLACEHOLDER_""IPV6" ] || [ "$TARGET_IPV6" = "N/A" ]; then
-        TARGET_IPV6=$(detect_local_ipv6)
-    fi
-    DISPLAY_IPV4="$TARGET_IP"
-    DISPLAY_IPV6="$TARGET_IPV6"
-    if [ -z "$DISPLAY_IPV6" ] || [ "$DISPLAY_IPV6" = "none" ] || [ "$DISPLAY_IPV6" = "PLACEHOLDER_""IPV6" ]; then
-        DISPLAY_IPV6="N/A"
-    fi
-
     if [ "$TEST_TG_MODE" = true ]; then
         echo "📱 正在推送 Telegram 全套通知预览样张..."
         QX_SAMPLE="vless=${SERVER_HOST}:443, method=none, password=${XRAY_UUID}, obfs=over-tls, obfs-host=${CURRENT_SNI}, reality-base64-pubkey=${XRAY_PUB}, reality-hex-shortid=${XRAY_SID}, vless-flow=xtls-rprx-vision, udp-relay=true, fast-open=true, tag=${SSH_ALIAS}"
@@ -353,20 +391,37 @@ if [ "$NOTIFY_TG" = true ] && { [ -n "$GATEWAY_URL" ] || { [ -n "$TG_BOT_TOKEN" 
         echo "   - [5/5] 推送 Health Report (完整体检报告) 样张..."
         UUID_MASKED="${XRAY_UUID:0:8}-****-****-****-************"
         PUB_MASKED="${XRAY_PUB:0:6}********"
-        M5=$(tpl_health_full "$SSH_ALIAS" "$CONCLUSION" "$DISPLAY_IPV4" "$DISPLAY_IPV6" "$SERVER_HOST" "$DOMAIN_STATUS" "$PING_REPORT" "$CURRENT_SNI" "$SNI_CODE" "$SNI_BASE" "$SNI_HANDSHAKE" "$SNI_CERT" "$SNI_CDN" "$SNI_RATING" "$SYS_UPTIME" "$TFO_STATUS" "$BBR_STATUS" "$UDP_STATUS" "$CONTAINER_STATUS" "$CONTAINER_UPTIME" "$FLOW" "$UUID_MASKED" "$PUB_MASKED" "$XRAY_SID")
+        M5=$(tpl_health_full "$SSH_ALIAS" "$CONCLUSION" "$DISPLAY_IPV4" "$DISPLAY_IPV6" "$SERVER_HOST" "$DOMAIN_STATUS" "$PING_REPORT" "$CURRENT_SNI" "$SNI_CODE" "$SNI_BASE" "$SNI_HANDSHAKE" "$SNI_CERT" "$SNI_CDN" "$SNI_RATING" "$SYS_UPTIME" "$TFO_STATUS" "$BBR_STATUS" "$UDP_STATUS" "$CONTAINER_STATUS" "$CONTAINER_UPTIME" "$FLOW" "$UUID_MASKED" "$PUB_MASKED" "$XRAY_SID" "${LOAD_AVG:-N/A}" "${MEM_REPORT:-N/A}" "${DISK_REPORT:-N/A}" "${GLOBAL_RESOLVE:-N/A}" "${PORT_LISTEN:-N/A}")
         send_tg_message "$M5"
 
         echo "✅ Telegram 全套样张推送成功！"
     else
-        if [ "$NOTIFY_ON_ERROR" = "true" ] && ! echo "$CONCLUSION" | grep -q '🔴'; then
+        if [ "$NOTIFY_ON_ERROR" = "true" ] && [[ "$CONCLUSION" != *"🔴"* ]]; then
             echo "📱 批量编排初始化：节点健康检查正常 ($CONCLUSION)，静默跳过推送以防刷屏。"
         else
             echo "📱 正在推送体检报告至 Telegram..."
             UUID_MASKED="${XRAY_UUID:0:8}-****-****-****-************"
             PUB_MASKED="${XRAY_PUB:0:6}********"
-            MESSAGE=$(tpl_health_full "$SSH_ALIAS" "$CONCLUSION" "$DISPLAY_IPV4" "$DISPLAY_IPV6" "$SERVER_HOST" "$DOMAIN_STATUS" "$PING_REPORT" "$CURRENT_SNI" "$SNI_CODE" "$SNI_BASE" "$SNI_HANDSHAKE" "$SNI_CERT" "$SNI_CDN" "$SNI_RATING" "$SYS_UPTIME" "$TFO_STATUS" "$BBR_STATUS" "$UDP_STATUS" "$CONTAINER_STATUS" "$CONTAINER_UPTIME" "$FLOW" "$UUID_MASKED" "$PUB_MASKED" "$XRAY_SID")
+            MESSAGE=$(tpl_health_full "$SSH_ALIAS" "$CONCLUSION" "$DISPLAY_IPV4" "$DISPLAY_IPV6" "$SERVER_HOST" "$DOMAIN_STATUS" "$PING_REPORT" "$CURRENT_SNI" "$SNI_CODE" "$SNI_BASE" "$SNI_HANDSHAKE" "$SNI_CERT" "$SNI_CDN" "$SNI_RATING" "$SYS_UPTIME" "$TFO_STATUS" "$BBR_STATUS" "$UDP_STATUS" "$CONTAINER_STATUS" "$CONTAINER_UPTIME" "$FLOW" "$UUID_MASKED" "$PUB_MASKED" "$XRAY_SID" "${LOAD_AVG:-N/A}" "${MEM_REPORT:-N/A}" "${DISK_REPORT:-N/A}" "${GLOBAL_RESOLVE:-N/A}" "${PORT_LISTEN:-N/A}")
             send_tg_message "$MESSAGE"
             echo "✅ 推送成功！"
         fi
     fi
 fi
+
+# 保存精简体检快照，供批量编排统一汇总推送
+cat <<EOF > "${DOCKER_DIR}/health.json"
+{
+  "alias": "$SSH_ALIAS",
+  "ip": "$DISPLAY_IPV4",
+  "domain": "$SERVER_HOST",
+  "conclusion": "$CONCLUSION",
+  "sni": "$CURRENT_SNI",
+  "sni_code": "$SNI_CODE",
+  "sni_rating": "$SNI_RATING",
+  "bbr": "$BBR_STATUS",
+  "tfo": "$TFO_STATUS",
+  "container": "$CONTAINER_STATUS"
+}
+EOF
+
