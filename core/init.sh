@@ -4,12 +4,13 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
+CORE_DIR="$SCRIPT_DIR"
 
 if [ -f "$LIB_DIR/ui.sh" ]; then source "$LIB_DIR/ui.sh"; fi
 if [ -f "$LIB_DIR/ssh.sh" ]; then source "$LIB_DIR/ssh.sh"; fi
 if [ -f "$LIB_DIR/security.sh" ]; then source "$LIB_DIR/security.sh"; fi
-if [ -f "$SCRIPT_DIR/rotate.sh" ]; then source "$SCRIPT_DIR/rotate.sh"; fi
-if [ -f "$SCRIPT_DIR/update.sh" ]; then source "$SCRIPT_DIR/update.sh"; fi
+if [ -f "$CORE_DIR/rotate.sh" ]; then source "$CORE_DIR/rotate.sh"; fi
+if [ -f "$CORE_DIR/update.sh" ]; then source "$CORE_DIR/update.sh"; fi
 
 function module_init() {
     local SECURE_MODE="${HARDEN_MODE:-false}"

@@ -3,9 +3,9 @@
 
 SSH_CONFIG_PATH="${TEST_SSH_CONFIG:-$HOME/.ssh/config}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/ssh.sh" ]; then
-    source "$SCRIPT_DIR/ssh.sh"
+_SEC_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$_SEC_LIB_DIR/ssh.sh" ]; then
+    source "$_SEC_LIB_DIR/ssh.sh"
 fi
 
 function sanitize_env_for_node() {

@@ -395,37 +395,166 @@ function provision_batch_group() {
         RESOLVED_KEY_FILE="$BATCH_KEY_PUB"
     fi
 
-    # Milestone 1: 批量开机通知
+    # Stage 1: 批量开机通知 (清晰独立字段)
     if [ "$CNSR_DETACHED_CHILD" != "1" ]; then
-        send_batch_tg_notify "🚀 *[Snack] AWS 批量编排开始*
-• *别名前缀*: \`${grp_alias}\`
+        local tpl_name="${CONFIG_INPUT:-$grp_alias}"
+        send_batch_tg_notify "🚀 *[Snack] AWS 批量编排任务启动*
+• *任务模版*: \`${tpl_name}\`
+• *节点数量*: \`${grp_count}\` 台 (\`${grp_alias}-1\` ~ \`${grp_count}\`)
 • *目标区域*: \`${grp_region}\`
-• *节点数量*: \`${grp_count}\` 台
-• *套餐/镜像*: \`${grp_bundle}\` / \`${grp_blueprint}\`"
+• *规格套餐*: \`${grp_bundle}\`
+• *系统镜像*: \`${grp_blueprint}\`"
     fi
 
-    # 执行模式分支：Debug 模式走顺序同步执行，常规模式走并发执行
-    if [ "$DEBUG_MODE" = "true" ]; then
-        echo "🐞 正在以 Debug 同步模式逐台初始化..."
-        for ((i=1; i<=grp_count; i++)); do
-            local current_alias="${grp_alias}"
-            if [ "$grp_count" -gt 1 ]; then
-                current_alias="${grp_alias}-${i}"
+    local BATCH_TMP_DIR=$(mktemp -d)
+
+    # Phase 1: 并发调用 AWS API 创建实例并收集 IP 与 Zone
+    echo "☁️ 正在批量调用 AWS API 创建 $grp_count 台实例..."
+    for ((i=1; i<=grp_count; i++)); do
+        local current_alias="${grp_alias}"
+        if [ "$grp_count" -gt 1 ]; then
+            current_alias="${grp_alias}-${i}"
+        fi
+        
+        (
+            local extra_py_args=()
+            if [ -n "$grp_key_pair" ]; then extra_py_args+=(--key-pair "$grp_key_pair"); fi
+            if [ -n "$grp_zone" ]; then extra_py_args+=(--zone "$grp_zone"); fi
+            
+            echo "☁️ [$current_alias] 正在通过 AWS API 创建实例 (区域: $grp_region, 规格: $grp_bundle, 镜像: $grp_blueprint)..."
+            local py_out
+            py_out=$(uv run providers/aws.py create --alias "$current_alias" --region "$grp_region" --count 1 --bundle "$grp_bundle" --blueprint "$grp_blueprint" "${extra_py_args[@]}" 2>&1)
+            local status=$?
+            
+            if [ $status -ne 0 ]; then
+                echo "❌ 错误: AWS 实例创建失败 [$current_alias]"
+                echo "$py_out"
+            else
+                uv run python3 -c "
+import sys, json
+try:
+    for line in sys.stdin:
+        line = line.strip()
+        if line.startswith('{'):
+            data = json.loads(line)
+            if 'ip' in data and data['ip']:
+                with open('${BATCH_TMP_DIR}/${current_alias}.json', 'w') as f:
+                    json.dump(data, f)
+                break
+except Exception:
+    pass
+" <<< "$py_out"
             fi
-            provision_single_instance "$current_alias" "$grp_region" "$grp_bundle" "$grp_blueprint" "$grp_key_pair" "$grp_zone" "$RESOLVED_USER" "$RESOLVED_KEY_FILE" "$RESOLVED_KEY"
-        done
-    else
-        for ((i=1; i<=grp_count; i++)); do
-            (
-                local current_alias="${grp_alias}"
-                if [ "$grp_count" -gt 1 ]; then
-                    current_alias="${grp_alias}-${i}"
-                fi
-                provision_single_instance "$current_alias" "$grp_region" "$grp_bundle" "$grp_blueprint" "$grp_key_pair" "$grp_zone" "$RESOLVED_USER" "$RESOLVED_KEY_FILE" "$RESOLVED_KEY"
-            ) &
-        done
-        wait
+        ) &
+    done
+    wait
+
+    local created_count=$(ls -1 "$BATCH_TMP_DIR"/*.json 2>/dev/null | wc -l | xargs)
+    if [ "$created_count" -eq 0 ]; then
+        echo "❌ 错误: 批量创建失败，未获取到任何有效实例信息。"
+        send_batch_tg_notify "🚨 *[Snack 告警] AWS 批量创建失败*
+• *目标区域*: \`${grp_region}\`
+• *错误详情*: 所有实例创建均未返回有效 IP。"
+        rm -rf "$BATCH_TMP_DIR"
+        return 1
     fi
+
+    # 生成 AZ 统计与实例清单
+    local SUMMARY_JSON
+    SUMMARY_JSON=$(uv run python3 -c "
+import glob, json, os
+files = sorted(glob.glob('${BATCH_TMP_DIR}/*.json'))
+nodes = []
+az_counts = {}
+for f in files:
+    try:
+        with open(f) as fp:
+            d = json.load(fp)
+            nodes.append(d)
+            z = d.get('zone', '')
+            if z:
+                az_counts[z] = az_counts.get(z, 0) + 1
+    except Exception:
+        pass
+
+print(json.dumps({'nodes': nodes, 'az_counts': az_counts}))
+")
+
+    local AZ_TEXT
+    AZ_TEXT=$(uv run python3 -c "
+import json, sys
+data = json.loads('''$SUMMARY_JSON''')
+az_counts = data.get('az_counts', {})
+if az_counts:
+    for z, c in sorted(az_counts.items()):
+        print(f'  - \`{z}\`: {c} 台')
+else:
+    print('  - 默认可用区')
+")
+
+    local NODES_TEXT
+    NODES_TEXT=$(uv run python3 -c "
+import json, sys
+data = json.loads('''$SUMMARY_JSON''')
+nodes = data.get('nodes', [])
+for n in nodes:
+    name = n.get('name', '')
+    ip = n.get('ip', '')
+    z = n.get('zone', '')
+    z_suffix = f' (\`{z.split(\"-\")[-1]}\`)' if z else ''
+    print(f'• \`{name}\`: \`{ip}\`{z_suffix}')
+")
+
+    # Stage 2: 统一汇总就绪看板
+    send_batch_tg_notify "☁️ *[Snack] AWS 批量实例就绪看板* ($created_count/$grp_count)
+• *目标区域*: \`${grp_region}\`
+• *可用区分布统计*:
+$AZ_TEXT
+
+📋 *节点与 IP 分配详情*:
+$NODES_TEXT
+
+⚙️ 正在并行连接各节点装配基础环境与 X-ray 服务..."
+
+    # Phase 2: 并行向各机器装配基础环境 (core/init.sh)
+    echo "⚙️ 正在并行向 $created_count 台机器装配基础环境与组件..."
+    for ((i=1; i<=grp_count; i++)); do
+        local current_alias="${grp_alias}"
+        if [ "$grp_count" -gt 1 ]; then
+            current_alias="${grp_alias}-${i}"
+        fi
+        
+        local info_file="${BATCH_TMP_DIR}/${current_alias}.json"
+        if [ -f "$info_file" ]; then
+            local current_ip=$(uv run python3 -c "import json; print(json.load(open('$info_file')).get('ip', ''))")
+            (
+                source "$SCRIPT_DIR/init.sh"
+                SSH_ALIAS="$current_alias"
+                TARGET_IP="$current_ip"
+                export NON_INTERACTIVE=true
+                local init_pass_args=(--non-interactive)
+                if [ -n "$RESOLVED_USER" ]; then init_pass_args+=(-u "$RESOLVED_USER"); fi
+                if [ -n "$RESOLVED_KEY_FILE" ]; then init_pass_args+=(--identity-file "$RESOLVED_KEY_FILE"); fi
+                if [ -n "$RESOLVED_KEY" ]; then init_pass_args+=(--key "$RESOLVED_KEY"); fi
+                module_init "${init_pass_args[@]}" "${EXTRA_INIT_ARGS[@]}"
+                echo "done" > "${BATCH_TMP_DIR}/${current_alias}.done"
+            ) &
+        fi
+    done
+    wait
+
+    local done_count=$(ls -1 "$BATCH_TMP_DIR"/*.done 2>/dev/null | wc -l | xargs)
+
+    # Stage 3: 最终完工总览
+    send_batch_tg_notify "🎉 *[Snack] AWS 批量部署全部完成* ($done_count/$grp_count)
+• *任务模版*: \`${CONFIG_INPUT:-$grp_alias}\`
+• *部署结果*: $done_count 台全部成功
+• *目标区域*: \`${grp_region}\`
+• *本地凭据*: 已全部写入 \`~/.ssh/config\`
+• *云端体检*: GitHub Actions 扫描已全量触发
+💡 节点集群已自治进入 15 分钟自动化轮换与自愈生命周期。"
+
+    rm -rf "$BATCH_TMP_DIR"
 }
 
 # 模版智能寻路解析

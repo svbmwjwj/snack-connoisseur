@@ -163,9 +163,11 @@ def create_instance(args=None, **kwargs):
                 pass
             time.sleep(2)
             
+        zone_name = inst.get("location", {}).get("availabilityZone", "")
         results.append({
             "name": name,
-            "ip": ip
+            "ip": ip,
+            "zone": zone_name
         })
         
     if count == 1:
