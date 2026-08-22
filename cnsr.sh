@@ -5,11 +5,15 @@ set -e
 
 # 加载环境变量
 if [ -f ".env" ]; then
+    set -a
     source .env
+    set +a
 elif [ -f ".env.example" ]; then
     echo "📄 正在从 .env.example 生成本地 .env 文件..."
     cp .env.example .env
+    set -a
     source .env
+    set +a
 fi
 export CNSR_LANG="${CNSR_LANG:-zh}"
 

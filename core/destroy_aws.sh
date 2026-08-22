@@ -65,6 +65,9 @@ if [ ! -f ".env" ] || ! grep -q "AWS_ACCESS_KEY_ID" .env || ! grep -q "AWS_SECRE
     fi
     exit 1
 fi
+set -a
+source .env
+set +a
 
 if [ "$CNSR_LANG" = "en" ]; then
     echo "🗑️ Destroying AWS Lightsail instances matching [$SSH_ALIAS] in $REGION..."

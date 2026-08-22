@@ -197,6 +197,10 @@ if [ ! -f ".env" ] || ! grep -q "AWS_ACCESS_KEY_ID" .env || ! grep -q "AWS_SECRE
     fi
     exit 1
 fi
+# 确保在子进程 (后台模式) 中也能拿到环境变量
+set -a
+source .env
+set +a
 
 function provision_single_instance() {
     local inst_alias="$1"
