@@ -143,13 +143,29 @@ def create_instance(args=None, **kwargs):
         if not created and last_err:
             raise last_err
         
-    # Fetch all info
+    # Fetch all info with smart polling for public IP
+    import time
+    if instances_to_create:
+        initial_wait = min(3 + len(instances_to_create), 8)
+        time.sleep(initial_wait)
+
     results = []
     for name in instance_names:
-        resp = client.get_instance(instanceName=name)
+        ip = ""
+        for attempt in range(20):
+            try:
+                resp = client.get_instance(instanceName=name)
+                inst = resp.get("instance", {}) if isinstance(resp, dict) else {}
+                ip = inst.get("publicIpAddress", "")
+                if ip:
+                    break
+            except Exception:
+                pass
+            time.sleep(2)
+            
         results.append({
             "name": name,
-            "ip": resp["instance"].get("publicIpAddress", "")
+            "ip": ip
         })
         
     if count == 1:

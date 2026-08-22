@@ -193,6 +193,40 @@ function check_ssh_conn() {
     ssh "${opts[@]}" "$target" "echo alive" >/dev/null 2>&1
 }
 
+function blueprint_to_default_user() {
+    local bp_lower=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+    if [[ "$bp_lower" =~ (ubuntu) ]]; then
+        echo "ubuntu"
+    elif [[ "$bp_lower" =~ (debian) ]]; then
+        echo "admin"
+    elif [[ "$bp_lower" =~ (amazon|amzn|centos|rocky|alma|ec2) ]]; then
+        echo "ec2-user"
+    elif [[ "$bp_lower" =~ (arch) ]]; then
+        echo "arch"
+    else
+        echo "root"
+    fi
+}
+
+function probe_ssh_user() {
+    local target_ip="$1"
+    local identity_file="${2:-}"
+    local candidate_users=("admin" "ubuntu" "root" "ec2-user")
+    
+    local extra_opts=(-o BatchMode=yes -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+    if [ -n "$identity_file" ] && [ -f "$identity_file" ]; then
+        extra_opts+=(-i "$identity_file")
+    fi
+
+    for u in "${candidate_users[@]}"; do
+        if ssh "${extra_opts[@]}" "$u@$target_ip" "echo ok" >/dev/null 2>&1; then
+            echo "$u"
+            return 0
+        fi
+    done
+    return 1
+}
+
 function guess_default_user() {
     local alias_lower=$(echo "$1" | tr '[:upper:]' '[:lower:]')
 

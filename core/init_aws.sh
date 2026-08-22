@@ -209,6 +209,9 @@ function provision_single_instance() {
     local inst_blueprint="$4"
     local inst_key_pair="$5"
     local inst_zone="${6:-}"
+    local inst_user="${7:-}"
+    local inst_key_file="${8:-}"
+    local inst_key_name="${9:-}"
 
     export NON_INTERACTIVE=true
     local extra_py_args=()
@@ -220,9 +223,9 @@ function provision_single_instance() {
     fi
 
     if [ "$CNSR_LANG" = "en" ]; then
-        echo "☁️ Calling AWS API to create instance [$inst_alias] in $inst_region ($inst_bundle, $inst_blueprint)..."
+        echo "☁️ [$inst_alias] Calling AWS API to create instance in $inst_region ($inst_bundle, $inst_blueprint)..."
     else
-        echo "☁️ 正在通过 AWS API 创建实例 [$inst_alias] (区域: $inst_region, 规格: $inst_bundle, 镜像: $inst_blueprint)..."
+        echo "☁️ [$inst_alias] 正在通过 AWS API 创建实例 (区域: $inst_region, 规格: $inst_bundle, 镜像: $inst_blueprint)..."
     fi
     
     set +e
@@ -267,9 +270,9 @@ except Exception:
     fi
     
     if [ "$CNSR_LANG" = "en" ]; then
-        echo "✅ Instance [$inst_alias] created! IP: $ip. Waiting 30s for sshd to start..."
+        echo "✅ [$inst_alias] Instance created! IP: $ip. Waiting 20s for sshd to start..."
     else
-        echo "✅ 实例 [$inst_alias] 创建成功，IP: $ip，等待云端 SSH 启动 (30秒)..."
+        echo "✅ [$inst_alias] 实例创建成功，IP: $ip，等待云端 SSH 启动 (20秒)..."
     fi
 
     send_batch_tg_notify "☁️ *[Snack] 实例创建就绪*
@@ -278,15 +281,22 @@ except Exception:
 • *区域*: \`${inst_region}\`
 ⚙️ 正在连接 SSH 装配 Docker 与 X-ray 基础环境..."
 
-    sleep 30
+    sleep 20
     
-    # 移交部署
-    echo "🚀 开始将部署移交至 core/init.sh... [$inst_alias]"
+    # 移交部署 (在子 shell 中独立执行，完全隔离环境)
+    echo "🚀 [$inst_alias] 开始移交至 core/init.sh 静默部署..."
     if [ -f "$SCRIPT_DIR/init.sh" ]; then
-        source "$SCRIPT_DIR/init.sh"
-        SSH_ALIAS="$inst_alias"
-        TARGET_IP="$ip"
-        module_init "${EXTRA_INIT_ARGS[@]}"
+        (
+            source "$SCRIPT_DIR/init.sh"
+            SSH_ALIAS="$inst_alias"
+            TARGET_IP="$ip"
+            export NON_INTERACTIVE=true
+            local init_pass_args=(--non-interactive)
+            if [ -n "$inst_user" ]; then init_pass_args+=(-u "$inst_user"); fi
+            if [ -n "$inst_key_file" ]; then init_pass_args+=(--identity-file "$inst_key_file"); fi
+            if [ -n "$inst_key_name" ]; then init_pass_args+=(--key "$inst_key_name"); fi
+            module_init "${init_pass_args[@]}" "${EXTRA_INIT_ARGS[@]}"
+        )
     else
         echo "❌ 错误: 找不到 core/init.sh (core/init.sh not found)"
         return 1
@@ -328,6 +338,63 @@ function provision_batch_group() {
         fi
     done
 
+    # 集中预解析用户名与批量统一密钥
+    local RESOLVED_USER=""
+    if [ -n "$grp_blueprint" ]; then
+        RESOLVED_USER=$(blueprint_to_default_user "$grp_blueprint")
+    else
+        RESOLVED_USER="admin"
+    fi
+
+    local RESOLVED_KEY="$grp_key_pair"
+    local RESOLVED_KEY_FILE=""
+    
+    mkdir -p "$HOME/.ssh/pub"
+    local agent_keys=()
+    while IFS= read -r line; do
+        [ -n "$line" ] && agent_keys+=("$line")
+    done < <(ssh-add -L 2>/dev/null || true)
+
+    if [ -n "$RESOLVED_KEY" ]; then
+        local matched_agent_key=""
+        for k in "${agent_keys[@]}"; do
+            local comment=$(echo "$k" | awk '{print $3}')
+            if [ "$comment" = "$RESOLVED_KEY" ]; then
+                matched_agent_key="$k"
+                break
+            fi
+        done
+        if [ -n "$matched_agent_key" ]; then
+            local BATCH_KEY_PUB="$HOME/.ssh/pub/${RESOLVED_KEY}.pub"
+            echo "$matched_agent_key" > "$BATCH_KEY_PUB"
+            RESOLVED_KEY_FILE="$BATCH_KEY_PUB"
+        elif [ -f "$HOME/.ssh/${RESOLVED_KEY}" ]; then
+            RESOLVED_KEY_FILE="$HOME/.ssh/${RESOLVED_KEY}"
+        elif [ -f "$HOME/.ssh/${RESOLVED_KEY}.pem" ]; then
+            RESOLVED_KEY_FILE="$HOME/.ssh/${RESOLVED_KEY}.pem"
+        fi
+    fi
+
+    if [ -z "$RESOLVED_KEY_FILE" ] && [ ${#agent_keys[@]} -gt 1 ] && [ -t 0 ] && [ "$CNSR_DETACHED_CHILD" != "1" ]; then
+        local options=()
+        for k in "${agent_keys[@]}"; do
+            local comment=$(echo "$k" | awk '{print $3}')
+            options+=("$comment")
+        done
+        select_menu "📋 检测到批量部署任务 (共 $grp_count 台)，请统一选择本批次使用的 SSH Agent 密钥:" "${options[@]}"
+        local sel_idx=$((MENU_CHOICE - 1))
+        RESOLVED_KEY="${options[$sel_idx]}"
+        local BATCH_KEY_PUB="$HOME/.ssh/pub/${RESOLVED_KEY}.pub"
+        echo "${agent_keys[$sel_idx]}" > "$BATCH_KEY_PUB"
+        RESOLVED_KEY_FILE="$BATCH_KEY_PUB"
+        echo "   🎯 批量部署已统一锁定密钥: $RESOLVED_KEY"
+    elif [ -z "$RESOLVED_KEY_FILE" ] && [ ${#agent_keys[@]} -ge 1 ]; then
+        RESOLVED_KEY="${agent_keys[0]##* }"
+        local BATCH_KEY_PUB="$HOME/.ssh/pub/${RESOLVED_KEY}.pub"
+        echo "${agent_keys[0]}" > "$BATCH_KEY_PUB"
+        RESOLVED_KEY_FILE="$BATCH_KEY_PUB"
+    fi
+
     # Milestone 1: 批量开机通知
     if [ "$CNSR_DETACHED_CHILD" != "1" ]; then
         send_batch_tg_notify "🚀 *[Snack] AWS 批量编排开始*
@@ -345,7 +412,7 @@ function provision_batch_group() {
             if [ "$grp_count" -gt 1 ]; then
                 current_alias="${grp_alias}-${i}"
             fi
-            provision_single_instance "$current_alias" "$grp_region" "$grp_bundle" "$grp_blueprint" "$grp_key_pair" "$grp_zone"
+            provision_single_instance "$current_alias" "$grp_region" "$grp_bundle" "$grp_blueprint" "$grp_key_pair" "$grp_zone" "$RESOLVED_USER" "$RESOLVED_KEY_FILE" "$RESOLVED_KEY"
         done
     else
         for ((i=1; i<=grp_count; i++)); do
@@ -354,7 +421,7 @@ function provision_batch_group() {
                 if [ "$grp_count" -gt 1 ]; then
                     current_alias="${grp_alias}-${i}"
                 fi
-                provision_single_instance "$current_alias" "$grp_region" "$grp_bundle" "$grp_blueprint" "$grp_key_pair" "$grp_zone"
+                provision_single_instance "$current_alias" "$grp_region" "$grp_bundle" "$grp_blueprint" "$grp_key_pair" "$grp_zone" "$RESOLVED_USER" "$RESOLVED_KEY_FILE" "$RESOLVED_KEY"
             ) &
         done
         wait

@@ -10,12 +10,21 @@ if [ -f "$LIB_DIR/ssh.sh" ]; then source "$LIB_DIR/ssh.sh"; fi
 
 SSH_ALIAS=""
 REGION=""
+PROFILE_INPUT=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --region|-region)
             if [ $# -ge 2 ]; then
                 REGION="$2"
+                shift 2
+            else
+                shift
+            fi
+            ;;
+        -f|--profile|-profile)
+            if [ $# -ge 2 ]; then
+                PROFILE_INPUT="$2"
                 shift 2
             else
                 shift
@@ -30,20 +39,37 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+if [ -n "$PROFILE_INPUT" ]; then
+    RESOLVED_CONF=""
+    if [ -f "$PROFILE_INPUT" ]; then
+        RESOLVED_CONF="$PROFILE_INPUT"
+    elif [ -f "templates/${PROFILE_INPUT}" ]; then
+        RESOLVED_CONF="templates/${PROFILE_INPUT}"
+    elif [ -f "templates/${PROFILE_INPUT}.conf" ]; then
+        RESOLVED_CONF="templates/${PROFILE_INPUT}.conf"
+    fi
+    if [ -n "$RESOLVED_CONF" ] && [ -f "$RESOLVED_CONF" ]; then
+        T_REGION=$(grep -E "^[[:space:]]*REGION=" "$RESOLVED_CONF" | head -n1 | cut -d= -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'\'']//' -e 's/["'\'']$//' -e 's/[[:space:]]*#.*$//')
+        T_ALIAS=$(grep -E "^[[:space:]]*ALIAS=" "$RESOLVED_CONF" | head -n1 | cut -d= -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'\'']//' -e 's/["'\'']$//' -e 's/[[:space:]]*#.*$//')
+        [ -z "$REGION" ] && REGION="$T_REGION"
+        [ -z "$SSH_ALIAS" ] && SSH_ALIAS="${T_ALIAS}-*"
+    fi
+fi
+
 if [ -z "$SSH_ALIAS" ]; then
     if [ "$CNSR_LANG" = "en" ]; then
-        echo "❌ Error: Please specify node alias or pattern to destroy. (Usage: ./cnsr.sh destroy-aws <alias_or_pattern> --region <region>)"
+        echo "❌ Error: Please specify node alias or pattern to destroy. (Usage: ./cnsr.sh destroy-aws <alias_or_pattern> --region <region> OR ./cnsr.sh destroy-aws -f <profile>)"
     else
-        echo "❌ 错误: 请指定要销毁的节点别名或匹配通配符。 (用法: ./cnsr.sh destroy-aws <别名或通配符> --region <区域>)"
+        echo "❌ 错误: 请指定要销毁的节点别名或匹配通配符。 (用法: ./cnsr.sh destroy-aws <别名或通配符> --region <区域> 或 ./cnsr.sh destroy-aws -f <模版>)"
     fi
     exit 1
 fi
 
 if [ -z "$REGION" ]; then
     if [ "$CNSR_LANG" = "en" ]; then
-        echo "❌ Error: destroy-aws requires --region. (e.g., --region ap-northeast-1)"
+        echo "❌ Error: destroy-aws requires --region or -f <profile>."
     else
-        echo "❌ 错误: destroy-aws 必须指定 --region。 (例如: --region ap-northeast-1)"
+        echo "❌ 错误: destroy-aws 必须指定 --region 或 -f <模版>。"
     fi
     exit 1
 fi
