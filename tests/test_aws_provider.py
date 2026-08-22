@@ -73,6 +73,52 @@ class TestAwsProviderCreateInstance:
         assert call_kwargs["keyPairName"] == "my-keypair"
         assert result["ip"] == "198.51.100.25"
 
+    def test_select_az_order(self):
+        from providers.aws import select_az_order
+        azs = ["ap-northeast-1a", "ap-northeast-1c", "ap-northeast-1d"]
+        
+        assert select_az_order(azs, "jp_aws-lightsail-1") == ["ap-northeast-1c", "ap-northeast-1d", "ap-northeast-1a"]
+        assert select_az_order(azs, "jp_aws-lightsail-2") == ["ap-northeast-1d", "ap-northeast-1a", "ap-northeast-1c"]
+        assert select_az_order(azs, "jp_aws-lightsail-3") == ["ap-northeast-1a", "ap-northeast-1c", "ap-northeast-1d"]
+        assert select_az_order(azs, "jp_aws-lightsail-4") == ["ap-northeast-1c", "ap-northeast-1d", "ap-northeast-1a"]
+
+    @patch("providers.aws.boto3.client")
+    def test_create_instance_auto_az_failover(self, mock_boto):
+        from providers.aws import create_instance
+
+        mock_client = MagicMock()
+        mock_boto.return_value = mock_client
+        mock_client.get_regions.return_value = {
+            "regions": [{
+                "name": "ap-northeast-1",
+                "availabilityZones": [
+                    {"zoneName": "ap-northeast-1a", "state": "available"},
+                    {"zoneName": "ap-northeast-1c", "state": "available"},
+                ]
+            }]
+        }
+        # First AZ fails due to insufficient capacity, second AZ succeeds
+        mock_client.create_instances.side_effect = [
+            Exception("InsufficientCapacity: Requested bundle is not available in zone"),
+            {"operations": [{"status": "Started"}]}
+        ]
+        mock_client.get_instance.return_value = {
+            "instance": {
+                "name": "node-2",
+                "state": {"name": "running"},
+                "publicIpAddress": "198.51.100.33",
+            }
+        }
+
+        res = create_instance(instance_name="node-2", region="ap-northeast-1")
+        assert res["name"] == "node-2"
+        assert mock_client.create_instances.call_count == 2
+        # First call used zone 2 % 2 = 0 ('ap-northeast-1a'), second call used 'ap-northeast-1c'
+        first_call_az = mock_client.create_instances.call_args_list[0][1]["availabilityZone"]
+        second_call_az = mock_client.create_instances.call_args_list[1][1]["availabilityZone"]
+        assert first_call_az == "ap-northeast-1a"
+        assert second_call_az == "ap-northeast-1c"
+
 
 class TestAwsProviderRotateIp:
     """Tests for AWS Lightsail static IP rotation (断臂求生)."""

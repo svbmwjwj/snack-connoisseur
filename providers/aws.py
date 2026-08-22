@@ -21,6 +21,47 @@ def validate_region(region):
     return region
 
 
+def get_healthy_azs(client, region):
+    """Query Lightsail for available and healthy AZs in the given region."""
+    try:
+        resp = client.get_regions(includeAvailabilityZones=True)
+        if isinstance(resp, dict):
+            for r in resp.get("regions", []):
+                if isinstance(r, dict) and r.get("name") == region:
+                    azs = [
+                        z["zoneName"]
+                        for z in r.get("availabilityZones", [])
+                        if isinstance(z, dict) and z.get("state") == "available"
+                    ]
+                    if azs:
+                        return sorted(azs)
+    except Exception:
+        pass
+    # Fallback to standard 1a if discovery fails
+    return [f"{region}a"]
+
+
+def select_az_order(healthy_azs, instance_name):
+    """
+    Given a list of healthy AZs and an instance name, return candidate AZs
+    ordered by round-robin selection (based on trailing number or name hash),
+    with subsequent AZs available for failover retry.
+    """
+    if not healthy_azs:
+        return []
+    if len(healthy_azs) == 1:
+        return list(healthy_azs)
+
+    # Extract trailing number if present (e.g. jp_aws-lightsail-1 -> 1, jp-2 -> 2)
+    m = re.search(r'[-_](\d+)$', str(instance_name))
+    if m:
+        idx = int(m.group(1)) % len(healthy_azs)
+    else:
+        idx = abs(hash(str(instance_name))) % len(healthy_azs)
+
+    return healthy_azs[idx:] + healthy_azs[:idx]
+
+
 def create_instance(args=None, **kwargs):
     if args is not None:
         instance_name = getattr(args, 'alias', None)
@@ -68,13 +109,8 @@ def create_instance(args=None, **kwargs):
             instances_to_create.append(name)
             
     if instances_to_create:
-        # Lightsail strictly requires availabilityZone, unlike EC2.
-        # If user did not provide a specific zone, default to zone 'a'.
-        az_to_use = zone if zone else f"{region}a"
-        
         create_kwargs = {
             "instanceNames": instances_to_create,
-            "availabilityZone": az_to_use,
             "bundleId": bundle_id,
             "blueprintId": blueprint_id,
         }
@@ -83,8 +119,29 @@ def create_instance(args=None, **kwargs):
             create_kwargs["userData"] = user_data
         if key_pair_name:
             create_kwargs["keyPairName"] = key_pair_name
+
+        if zone:
+            candidate_azs = [zone]
+        else:
+            healthy_azs = get_healthy_azs(client, region)
+            candidate_azs = select_az_order(healthy_azs, instance_names[0] if instance_names else instance_name)
             
-        client.create_instances(**create_kwargs)
+        last_err = None
+        created = False
+        for candidate_az in candidate_azs:
+            try:
+                client.create_instances(availabilityZone=candidate_az, **create_kwargs)
+                created = True
+                break
+            except Exception as e:
+                last_err = e
+                err_str = str(e).lower()
+                if any(k in err_str for k in ["insufficient", "capacity", "availabilityzone", "unavailable", "valid"]):
+                    continue
+                raise
+
+        if not created and last_err:
+            raise last_err
         
     # Fetch all info
     results = []
