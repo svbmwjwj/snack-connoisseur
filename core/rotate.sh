@@ -406,8 +406,19 @@ function module_rotate_ip() {
         ssh_opts+=(-F "$SSH_CONFIG_PATH")
     fi
 
-    # 4.1 Stateless Probe: check AWS metadata endpoint
+    # 4.1 Stateless Probe: check AWS metadata endpoint, fallback to alias prefix inference when IP is blocked
     local AWS_REGION=$(ssh "${ssh_opts[@]}" "$alias" "curl -s -m 2 http://169.254.169.254/latest/meta-data/placement/region" 2>/dev/null || true)
+    if [ -z "$AWS_REGION" ]; then
+        case "$alias" in
+            jp_*|jp-*) AWS_REGION="ap-northeast-1" ;;
+            sg_*|sg-*) AWS_REGION="ap-southeast-1" ;;
+            us_*|us-*) AWS_REGION="us-east-1" ;;
+            kr_*|kr-*) AWS_REGION="ap-northeast-2" ;;
+            de_*|de-*) AWS_REGION="eu-central-1" ;;
+            uk_*|uk-*) AWS_REGION="eu-west-2" ;;
+        esac
+    fi
+
     if [ -z "$AWS_REGION" ]; then
         if [ "$CNSR_LANG" = "en" ]; then
             echo "❌ Manual node: cloud automated IP rotation is not supported on non-AWS nodes."
