@@ -22,3 +22,6 @@ __pycache__/
 .DS_Store
 scratch/
 
+# Local Obsidian docs symlink (untracked)
+docs
+docs/

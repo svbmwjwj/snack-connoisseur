@@ -11,7 +11,9 @@ bash -n templates/reality_check.template.sh
 bash -n templates/async_deploy.template.sh
 bash -n templates/tg_templates.sh
 bash -n cnsr.sh
-echo "✅ All templates and cnsr.sh passed bash -n static syntax validation!"
+bash -n lib/ui.sh
+bash -n lib/ssh.sh
+echo "✅ All templates, cnsr.sh, and lib modules passed bash -n static syntax validation!"
 
 echo "=== 2. Testing runner.template.sh update & execution ==="
 TMP_DIR=$(mktemp -d)
