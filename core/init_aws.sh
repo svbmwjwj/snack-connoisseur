@@ -707,12 +707,12 @@ $NODES_TEXT
 
     rm -rf "$BATCH_TMP_DIR"
 
-    # Auto-link extraction (精准传递确定成功的节点名单)
+    # Auto-print extraction (精准传递确定成功的节点名单并推送到 Telegram)
     if [ ${#done_aliases[@]} -gt 0 ]; then
-        echo -e "\n🔄 正在自动提取节点订阅链接 (Extracting subscription links)..."
-        if [ -f "$SCRIPT_DIR/link.sh" ]; then
-            source "$SCRIPT_DIR/link.sh"
-            module_link "${done_aliases[@]}"
+        echo -e "\n🔄 正在自动提取并交付节点订阅配置 (Extracting subscription links)..."
+        if [ -f "$SCRIPT_DIR/print.sh" ]; then
+            source "$SCRIPT_DIR/print.sh"
+            module_print "${done_aliases[@]}" --tg
         fi
     fi
 }
