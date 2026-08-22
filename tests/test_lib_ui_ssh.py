@@ -22,7 +22,7 @@ class TestLibUi(unittest.TestCase):
         """
         res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
-        self.assertIn("Snack Connoisseur (cnsr) - X-ray REALITY 全自动部署与防封锁自愈中枢", res.stdout)
+        self.assertIn("Snack Connoisseur (cnsr)", res.stdout)
         self.assertIn("用法 / USAGE:", res.stdout)
 
     def test_print_usage_en(self):
@@ -33,7 +33,7 @@ class TestLibUi(unittest.TestCase):
         """
         res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
-        self.assertIn("Snack Connoisseur (cnsr) - X-ray REALITY Controller & Anti-Censorship Suite", res.stdout)
+        self.assertIn("Snack Connoisseur (cnsr)", res.stdout)
         self.assertIn("USAGE:", res.stdout)
 
     def test_print_usage_exit_code(self):

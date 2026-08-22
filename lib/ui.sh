@@ -6,7 +6,7 @@ function print_usage() {
     local lang="${CNSR_LANG:-zh}"
     if [ "$lang" = "en" ]; then
         cat << 'EOF'
-Snack Connoisseur (cnsr) - X-ray REALITY Controller & Anti-Censorship Suite
+Snack Connoisseur (cnsr)
 
 USAGE:
   ./cnsr.sh <command> [alias] [arguments] [options]
@@ -40,7 +40,7 @@ EXAMPLES:
 EOF
     else
         cat << 'EOF'
-Snack Connoisseur (cnsr) - X-ray REALITY 全自动部署与防封锁自愈中枢
+Snack Connoisseur (cnsr)
 
 用法 / USAGE:
   ./cnsr.sh <命令> [别名] [IP] [选项]
