@@ -140,23 +140,32 @@ OUT_TIMEOUTS=0
 
 if [ "$CNSR_LANG" = "en" ]; then
 PING_REPORT="🇨🇳 *China Inbound (BGP / Backbone)*
-- *Ali / Tencent*: ${IN_ALI} / ${IN_TX}
-- *Baidu / 114DNS*: ${IN_BD} / ${IN_114}
+- *Ali BGP*: ${IN_ALI}
+- *Tencent BGP*: ${IN_TX}
+- *Baidu Backbone*: ${IN_BD}
+- *114DNS Anycast*: ${IN_114}
 
 🌐 *Global Outbound Connectivity*
-- *Cloudflare / Google*: ${OUT_CF} / ${OUT_GG}"
+- *Google DNS (8.8.8.8)*: ${OUT_GG}
+- *Cloudflare (1.1.1.1)*: ${OUT_CF}"
 else
 PING_REPORT="🇨🇳 *入站国内回程 (BGP / 骨干链路)*
-- 阿里 / 腾讯: ${IN_ALI} / ${IN_TX}
-- 百度 / 114DNS: ${IN_BD} / ${IN_114}
+- 阿里 BGP: ${IN_ALI}
+- 腾讯 BGP: ${IN_TX}
+- 百度骨干: ${IN_BD}
+- 114 骨干: ${IN_114}
 
 🌐 *出站海外访问能力 (Global Outbound)*
-- Cloudflare / Google: ${OUT_CF} / ${OUT_GG}"
+- Google DNS (8.8.8.8): ${OUT_GG}
+- Cloudflare (1.1.1.1): ${OUT_CF}"
 fi
 
-echo "   - [Inbound] Ali / Tencent: ${IN_ALI} / ${IN_TX}"
-echo "   - [Inbound] Baidu / 114DNS: ${IN_BD} / ${IN_114}"
-echo "   - [Outbound] CF / Google: ${OUT_CF} / ${OUT_GG}"
+echo "   - [Inbound] 阿里 BGP: ${IN_ALI}"
+echo "   - [Inbound] 腾讯 BGP: ${IN_TX}"
+echo "   - [Inbound] 百度骨干: ${IN_BD}"
+echo "   - [Inbound] 114 骨干: ${IN_114}"
+echo "   - [Outbound] Google DNS: ${OUT_GG}"
+echo "   - [Outbound] Cloudflare: ${OUT_CF}"
 
 rm -f /tmp/ping_*
 
