@@ -16,6 +16,22 @@ class TestCoreOperations(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.temp_dir)
 
+    def _setup_bin_dir(self, extra_tools=None):
+        bin_dir = os.path.join(self.temp_dir, "bin")
+        os.makedirs(bin_dir, exist_ok=True)
+        # Mock uv to execute python3 without triggering sandbox ~/.local/share/uv path block
+        mock_uv = os.path.join(bin_dir, "uv")
+        with open(mock_uv, "w") as f:
+            f.write("""#!/bin/bash
+if [ "$1" = "run" ]; then
+    shift
+    exec "$@"
+fi
+exec "$@"
+""")
+        os.chmod(mock_uv, 0o755)
+        return bin_dir
+
     # ------------------------------------------------------------------
     # 1. Static syntax validation (bash -n)
     # ------------------------------------------------------------------
@@ -44,8 +60,7 @@ class TestCoreOperations(unittest.TestCase):
     def test_module_update_execution(self):
         """module_update should invoke sync_node_scripts and print success message."""
         update_sh = os.path.join(self.core_dir, "update.sh")
-        bin_dir = os.path.join(self.temp_dir, "bin")
-        os.makedirs(bin_dir)
+        bin_dir = self._setup_bin_dir()
         log_file = os.path.join(self.temp_dir, "update_ssh.log")
 
         mock_ssh = os.path.join(bin_dir, "ssh")
@@ -99,8 +114,7 @@ exit 0
     def test_module_check_execution(self):
         """module_check should sync scripts and invoke reality_check.sh --notify remotely."""
         check_sh = os.path.join(self.core_dir, "check.sh")
-        bin_dir = os.path.join(self.temp_dir, "bin")
-        os.makedirs(bin_dir)
+        bin_dir = self._setup_bin_dir()
         log_file = os.path.join(self.temp_dir, "check_ssh.log")
 
         mock_ssh = os.path.join(bin_dir, "ssh")
@@ -147,8 +161,7 @@ exit 0
     def test_module_rotate_sni_execution(self):
         """module_rotate_sni should invoke reality_rotate.sh --force on the remote host."""
         rotate_sh = os.path.join(self.core_dir, "rotate.sh")
-        bin_dir = os.path.join(self.temp_dir, "bin")
-        os.makedirs(bin_dir)
+        bin_dir = self._setup_bin_dir()
         log_file = os.path.join(self.temp_dir, "rotate_sni.log")
 
         mock_ssh = os.path.join(bin_dir, "ssh")
@@ -189,8 +202,7 @@ exit 0
     def test_module_rotate_sni_dry_run(self):
         """module_rotate_sni with DRY_RUN=true / --dry-run should run in test mode."""
         rotate_sh = os.path.join(self.core_dir, "rotate.sh")
-        bin_dir = os.path.join(self.temp_dir, "bin")
-        os.makedirs(bin_dir)
+        bin_dir = self._setup_bin_dir()
         log_file = os.path.join(self.temp_dir, "rotate_dry_run.log")
 
         mock_ssh = os.path.join(bin_dir, "ssh")
@@ -227,8 +239,7 @@ exit 0
     def test_module_rotate_dns_execution(self):
         """module_rotate_dns should invoke Cloudflare API, update remote host, and upgrade SSH config."""
         rotate_sh = os.path.join(self.core_dir, "rotate.sh")
-        bin_dir = os.path.join(self.temp_dir, "bin")
-        os.makedirs(bin_dir)
+        bin_dir = self._setup_bin_dir()
         log_file = os.path.join(self.temp_dir, "rotate_dns.log")
 
         with open(self.test_ssh_config, "w") as f:
@@ -288,11 +299,87 @@ exit 0
             log_content = f.read()
         self.assertIn("SERVER_HOST=", log_content)
 
+    def test_module_rotate_dns_cloudflare_api_failure(self):
+        """module_rotate_dns should fail and not report success if Cloudflare API returns error."""
+        rotate_sh = os.path.join(self.core_dir, "rotate.sh")
+        bin_dir = self._setup_bin_dir()
+
+        mock_ssh = os.path.join(bin_dir, "ssh")
+        with open(mock_ssh, "w") as f:
+            f.write("""#!/bin/bash
+if [[ "$*" == *"curl -4"* ]]; then echo "198.51.100.77"; exit 0; fi
+if [[ "$*" == *"curl -6"* ]]; then echo "none"; exit 0; fi
+exit 0
+""")
+        os.chmod(mock_ssh, 0o755)
+
+        mock_curl = os.path.join(bin_dir, "curl")
+        with open(mock_curl, "w") as f:
+            f.write(r'''#!/bin/bash
+cmd="$*"
+if [[ "$cmd" == *"zones/mock_zone_id/dns_records"* ]]; then
+    if [[ "$cmd" == *"POST"* ]]; then
+        echo '{"success":false,"errors":[{"message":"Authentication error: invalid token"}]}'
+        exit 0
+    fi
+elif [[ "$cmd" == *"zones/mock_zone_id"* ]]; then
+    echo '{"success":true,"result":{"name":"snackdomain.com"}}'
+    exit 0
+fi
+exit 0
+''')
+        os.chmod(mock_curl, 0o755)
+
+        cmd = f"""
+        export PATH="{bin_dir}:$PATH"
+        export TEST_SSH_CONFIG="{self.test_ssh_config}"
+        export CF_API_TOKEN="invalid_token"
+        export CF_ZONE_ID="mock_zone_id"
+        source "{rotate_sh}"
+        module_rotate_dns "sg_dns_fail"
+        """
+        res = subprocess.run(["bash", "-c", cmd], cwd=self.repo_root, capture_output=True, text=True)
+        self.assertNotEqual(res.returncode, 0)
+        combined_out = res.stdout + res.stderr
+        self.assertIn("Cloudflare DNS A 记录创建失败", combined_out)
+        self.assertNotIn("伪装域名已更新", combined_out)
+
+    def test_check_cf_credentials_idempotent_env_write(self):
+        """set_env_var and check_cf_credentials should write to REPO_DIR/.env idempotently without duplicate lines."""
+        rotate_sh = os.path.join(self.core_dir, "rotate.sh")
+        mock_env = os.path.join(self.repo_root, ".env")
+        env_existed = os.path.exists(mock_env)
+        orig_env_content = ""
+        if env_existed:
+            with open(mock_env, "r") as f:
+                orig_env_content = f.read()
+
+        try:
+            cmd = f"""
+            source "{rotate_sh}"
+            set_env_var "TEST_CF_TOKEN" "token_v1"
+            set_env_var "TEST_CF_TOKEN" "token_v2"
+            """
+            res = subprocess.run(["bash", "-c", cmd], cwd=self.temp_dir, capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0)
+
+            with open(mock_env, "r") as f:
+                env_content = f.read()
+
+            self.assertEqual(env_content.count("TEST_CF_TOKEN="), 1)
+            self.assertIn('TEST_CF_TOKEN="token_v2"', env_content)
+        finally:
+            if env_existed:
+                with open(mock_env, "w") as f:
+                    f.write(orig_env_content)
+            else:
+                if os.path.exists(mock_env):
+                    os.remove(mock_env)
+
     def test_module_rotate_ip_stateless_probe(self):
         """module_rotate_ip on non-AWS instance should intercept with manual node message."""
         rotate_sh = os.path.join(self.core_dir, "rotate.sh")
-        bin_dir = os.path.join(self.temp_dir, "bin")
-        os.makedirs(bin_dir)
+        bin_dir = self._setup_bin_dir()
 
         mock_ssh = os.path.join(bin_dir, "ssh")
         with open(mock_ssh, "w") as f:
@@ -326,8 +413,7 @@ exit 0
     def test_module_test_tg_execution(self):
         """module_test_tg should sync node scripts and execute reality_check.sh --test-tg with IS_TEST_MODE=1."""
         test_sh = os.path.join(self.core_dir, "test.sh")
-        bin_dir = os.path.join(self.temp_dir, "bin")
-        os.makedirs(bin_dir)
+        bin_dir = self._setup_bin_dir()
         log_file = os.path.join(self.temp_dir, "test_tg.log")
 
         mock_ssh = os.path.join(bin_dir, "ssh")
@@ -369,8 +455,7 @@ exit 0
     def test_module_test_sni_execution(self):
         """module_test_sni should invoke reality_rotate.sh --force in dry-run test mode."""
         test_sh = os.path.join(self.core_dir, "test.sh")
-        bin_dir = os.path.join(self.temp_dir, "bin")
-        os.makedirs(bin_dir)
+        bin_dir = self._setup_bin_dir()
         log_file = os.path.join(self.temp_dir, "test_sni.log")
 
         mock_ssh = os.path.join(bin_dir, "ssh")
@@ -411,8 +496,7 @@ exit 0
     def test_module_test_dispatcher(self):
         """module_test should dispatch to tg or sni based on arguments."""
         test_sh = os.path.join(self.core_dir, "test.sh")
-        bin_dir = os.path.join(self.temp_dir, "bin")
-        os.makedirs(bin_dir)
+        bin_dir = self._setup_bin_dir()
         log_file = os.path.join(self.temp_dir, "test_disp.log")
 
         mock_ssh = os.path.join(bin_dir, "ssh")

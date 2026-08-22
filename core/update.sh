@@ -4,6 +4,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [ -f "$LIB_DIR/ssh.sh" ]; then
     source "$LIB_DIR/ssh.sh"
@@ -72,7 +73,7 @@ function sync_node_scripts() {
     fi
     local IPV6_CIDR="none"
     if [ "$IPV6" != "none" ] && [ -n "$IPV6" ]; then
-        IPV6_CIDR=$(python3 -c "import sys, ipaddress; print(str(ipaddress.IPv6Network(f'{sys.argv[1]}/112', strict=False)))" "$IPV6" 2>/dev/null || echo "none")
+        IPV6_CIDR=$(cd "$REPO_DIR" && uv run python3 -c "import sys, ipaddress; print(str(ipaddress.IPv6Network(f'{sys.argv[1]}/112', strict=False)))" "$IPV6" 2>/dev/null || echo "none")
         if [ -z "$IPV6_CIDR" ] || [ "$IPV6_CIDR" = "none" ]; then
             local V6_PREFIX=$(echo "$IPV6" | awk -F':' '{print $1":"$2":"$3":"$4}')
             [ -n "$V6_PREFIX" ] && IPV6_CIDR="${V6_PREFIX}::/64"
@@ -97,7 +98,6 @@ function sync_node_scripts() {
 
     # 3. 创建本地临时渲染目录
     local TMP_SYNC_DIR=$(mktemp -d)
-    local REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
     # 3.1 渲染 runner.sh
     cp "$REPO_DIR/templates/runner.template.sh" "$TMP_SYNC_DIR/runner.sh"
@@ -182,7 +182,7 @@ function sync_node_scripts() {
         chmod +x ${DOCKER_APP_DIR}/runner.sh ${DOCKER_APP_DIR}/reality_rotate.sh ${DOCKER_APP_DIR}/reality_check.sh ${DOCKER_APP_DIR}/tg_templates.sh 2>/dev/null || true
         [ -f ${DOCKER_APP_DIR}/reality-checker ] && chmod +x ${DOCKER_APP_DIR}/reality-checker 2>/dev/null || true
         if ! command -v crontab >/dev/null 2>&1; then if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y cron; fi; fi
-        (sudo -u \$(whoami) crontab -l 2>/dev/null | grep -v -E 'reality_rotate.sh|runner.sh'; echo '*/15 * * * * ${DOCKER_APP_DIR}/runner.sh > ${DOCKER_APP_DIR}/rotate.log 2>&1') | sudo -u \$(whoami) crontab -
+        (crontab -l 2>/dev/null | grep -v -E 'reality_rotate.sh|runner.sh'; echo '*/15 * * * * ${DOCKER_APP_DIR}/runner.sh > ${DOCKER_APP_DIR}/rotate.log 2>&1') | crontab -
     "
 
     rm -rf "$TMP_SYNC_DIR"
