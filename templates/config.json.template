@@ -1,0 +1,109 @@
+{
+  "log": {
+    "loglevel": "warning",
+    "maskAddress": "quarter"
+  },
+  "dns": {
+    "tag": "dns_inbound",
+    "servers": [
+      {
+        "address": "https+local://1.1.1.1/dns-query",
+        "unexpectedIPs": [
+          "geoip:private"
+        ]
+      },
+      {
+        "address": "https+local://8.8.8.8/dns-query",
+        "unexpectedIPs": [
+          "geoip:private"
+        ]
+      }
+    ],
+    "serveStale": true,
+    "queryStrategy": "UseIP",
+    "serveExpiredTTL": 86400,
+    "enableParallelQuery": true,
+    "disableFallbackIfMatch": true
+  },
+  "inbounds": [
+    {
+      "tag": "PLACEHOLDER_ALIAS",
+      "port": 40443,
+      "listen": "::",
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "PLACEHOLDER_UUID",
+            "flow": "xtls-rprx-vision",
+            "email": "userA@shenzhen.com",
+            "level": 0
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      },
+      "streamSettings": {
+        "network": "raw",
+        "sockopt": {
+          "tcpFastOpen": true
+        },
+        "security": "reality",
+        "realitySettings": {
+          "dest": "PLACEHOLDER_SNI:443",
+          "show": false,
+          "xver": 0,
+          "shortIds": [
+            "PLACEHOLDER_SHORT_ID"
+          ],
+          "privateKey": "PLACEHOLDER_PRIVATE_KEY",
+          "serverNames": [
+            "PLACEHOLDER_SNI"
+          ]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "settings": {
+        "domainStrategy": "UseIP"
+      },
+      "streamSettings": {
+        "sockopt": {
+          "tcpFastOpen": true
+        }
+      }
+    },
+    {
+      "tag": "blocked",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "blocked"
+      },
+      {
+        "inboundTag": [
+          "dns_inbound"
+        ],
+        "outboundTag": "direct"
+      }
+    ],
+    "domainStrategy": "IPIfNonMatch"
+  }
+}

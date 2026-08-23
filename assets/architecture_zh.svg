@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 580" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #FFFFFF; }
+      .title { font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 22px; font-weight: bold; fill: #09090B; text-anchor: middle; }
+      .subtitle { font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 13px; fill: #52525B; text-anchor: middle; }
+      
+      .box-card { fill: #FFFFFF; stroke: #18181B; stroke-width: 1.5; rx: 6px; ry: 6px; }
+      .box-inner { fill: #FAFAFA; stroke: #E4E4E7; stroke-width: 1; rx: 4px; ry: 4px; }
+      
+      .box-title { font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 15px; font-weight: bold; fill: #09090B; }
+      .box-tag { font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 10px; font-weight: 700; fill: #71717A; letter-spacing: 0.5px; }
+      .box-desc { font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 12px; fill: #3F3F46; line-height: 1.5; }
+      
+      .arrow { stroke: #18181B; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+      .arrow-dash { stroke: #71717A; stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; marker-end: url(#arrowhead-gray); }
+      
+      .arrow-label { font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 11px; fill: #27272A; text-anchor: middle; font-weight: 500; }
+      .arrow-label-dash { font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: 11px; font-weight: 600; fill: #52525B; text-anchor: middle; }
+    </style>
+    
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#18181B"/>
+    </marker>
+    <marker id="arrowhead-gray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#71717A"/>
+    </marker>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="1200" height="580" class="bg"/>
+
+  <!-- 顶部标题 -->
+  <text x="600" y="45" class="title">Snack Connoisseur 架构拓扑与自愈矩阵</text>
+  <text x="600" y="70" class="subtitle">零凭据密钥隔离 · 云端自动化端口扫描 · 7x24 小时阶梯自愈闭环</text>
+
+  <!-- ==================== 1. 本地控制台 ==================== -->
+  <rect x="40" y="110" width="280" height="420" class="box-card"/>
+  <text x="60" y="140" class="box-title">本地控制台 (cnsr.sh)</text>
+  <text x="60" y="162" class="box-tag">本地控制平面</text>
+  
+  <rect x="55" y="180" width="250" height="75" class="box-inner"/>
+  <text x="65" y="202" class="box-desc" font-weight="bold">指令调度分发器</text>
+  <text x="65" y="222" class="box-desc">• init / check / update / test</text>
+  <text x="65" y="240" class="box-desc">• rotate-ip / rotate-dns / rotate-sni</text>
+
+  <rect x="55" y="270" width="250" height="75" class="box-inner"/>
+  <text x="65" y="292" class="box-desc" font-weight="bold">零密钥脱敏隔离</text>
+  <text x="65" y="312" class="box-desc">• 白名单剔除 AWS / Cloudflare 密钥</text>
+  <text x="65" y="330" class="box-desc">• 免密 BatchMode 批量安全下发</text>
+
+  <rect x="55" y="360" width="250" height="75" class="box-inner"/>
+  <text x="65" y="382" class="box-desc" font-weight="bold">模拟评估与演练套件</text>
+  <text x="65" y="402" class="box-desc">• --dry-run (只读测速与质量评分)</text>
+  <text x="65" y="420" class="box-desc">• 5 种场景告警预览包注入</text>
+
+  <rect x="55" y="450" width="250" height="65" class="box-inner"/>
+  <text x="65" y="472" class="box-desc" font-weight="bold">AWS 静态 IP 轮换器</text>
+  <text x="65" y="492" class="box-desc">• IP 受阻时自动解绑与重新绑定</text>
+
+  <!-- ==================== 2. Zero-Secret 网关 ==================== -->
+  <rect x="420" y="110" width="340" height="180" class="box-card"/>
+  <text x="440" y="140" class="box-title">Cloudflare 网关 (Worker)</text>
+  <text x="440" y="162" class="box-tag">零密钥代理接入层</text>
+  <text x="440" y="195" class="box-desc">• <tspan font-weight="bold">POST /api/tg</tspan>：中继 Telegram 告警推送</text>
+  <text x="440" y="220" class="box-desc">• <tspan font-weight="bold">POST /api/dispatch</tspan>：触发 GitHub Action 扫描</text>
+  <text x="440" y="245" class="box-desc">• <tspan font-weight="bold">GET /api/raw/*</tspan>：中继最新配置模板同步</text>
+  <text x="440" y="270" class="box-desc">• 远端节点磁盘<tspan font-weight="bold">无需保留任何敏感上游密钥</tspan></text>
+
+  <!-- ==================== 3. 云端扫描集群 ==================== -->
+  <rect x="860" y="110" width="300" height="180" class="box-card"/>
+  <text x="880" y="140" class="box-title">云端扫描集群 (GitHub Actions)</text>
+  <text x="880" y="162" class="box-tag">并发子网扫描器</text>
+  <text x="880" y="195" class="box-desc">• 由 <tspan font-weight="bold">repository_dispatch</tspan> 安全触发</text>
+  <text x="880" y="220" class="box-desc">• 扫描目标 IPv4 / IPv6 /22 网段资产</text>
+  <text x="880" y="245" class="box-desc">• 深度评估 TLS 1.3 / H2 / ALPN / CDN 质量</text>
+  <text x="880" y="270" class="box-desc">• 发布并维护最新 <tspan font-weight="bold">${ALIAS}.csv</tspan> 成果产物</text>
+
+  <!-- ==================== 4. 远端节点引擎 ==================== -->
+  <rect x="420" y="340" width="340" height="190" class="box-card"/>
+  <text x="440" y="370" class="box-title">VPS 节点 (Docker / X-ray)</text>
+  <text x="440" y="392" class="box-tag">7x24 守护与自愈引擎</text>
+  <text x="440" y="420" class="box-desc">• <tspan font-weight="bold">runner.sh</tspan>：模板热加载与原子更新</text>
+  <text x="440" y="445" class="box-desc">• <tspan font-weight="bold">reality-checker</tspan>：原生 ClientHello 探活</text>
+  <text x="440" y="470" class="box-desc">• <tspan font-weight="bold">reality_rotate.sh</tspan>：7级阶梯 SNI 选优算法</text>
+  <text x="440" y="495" class="box-desc">• 正常期：<tspan font-weight="bold">100% 静默</tspan> ｜ 受阻期：<tspan font-weight="bold">全自动自愈</tspan></text>
+
+  <!-- ==================== 5. 告警与订阅中枢 ==================== -->
+  <rect x="860" y="340" width="300" height="190" class="box-card"/>
+  <text x="880" y="370" class="box-title">Telegram 告警与消费中枢</text>
+  <text x="880" y="392" class="box-tag">状态消费与监控告警</text>
+  <text x="880" y="420" class="box-desc">• <tspan font-weight="bold">新节点就绪</tspan>：集成全要素开机卡片</text>
+  <text x="880" y="445" class="box-desc">• <tspan font-weight="bold">自愈完成</tspan>：推送新 SNI 与 QX / VLESS URI</text>
+  <text x="880" y="470" class="box-desc">• <tspan font-weight="bold">体检报告</tspan>：6 维度深度健康评分</text>
+  <text x="880" y="495" class="box-desc">• <tspan font-weight="bold">故障警报</tspan>：兜底失败即时告警</text>
+
+  <!-- ==================== 连线与流转 ==================== -->
+  <!-- CLI to Gateway -->
+  <path d="M 320 200 L 420 200" class="arrow"/>
+  <text x="370" y="190" class="arrow-label">部署 / 同步</text>
+
+  <!-- CLI to VPS -->
+  <path d="M 320 435 L 420 435" class="arrow"/>
+  <text x="370" y="425" class="arrow-label">SSH 批量管控</text>
+
+  <!-- Gateway to GitHub -->
+  <path d="M 760 200 L 860 200" class="arrow"/>
+  <text x="810" y="190" class="arrow-label">调度触发</text>
+
+  <!-- GitHub to VPS (Download CSV) -->
+  <path d="M 910 290 L 910 320 L 760 380" class="arrow"/>
+  <text x="850" y="335" class="arrow-label">拉取热点 CSV</text>
+
+  <!-- VPS to Gateway (Proxy TG & Dispatch) -->
+  <path d="M 590 340 L 590 290" class="arrow"/>
+  <text x="545" y="320" class="arrow-label">鉴权中继</text>
+
+  <!-- VPS to Telegram -->
+  <path d="M 760 435 L 860 435" class="arrow"/>
+  <text x="810" y="425" class="arrow-label">通知与配置</text>
+
+  <!-- Auto-healing Loop Indicator (Dash) -->
+  <path d="M 680 530 L 680 560 L 980 560 L 980 530" class="arrow-dash"/>
+  <text x="830" y="555" class="arrow-label-dash">7x24 小时阶梯式自愈闭环</text>
+</svg>

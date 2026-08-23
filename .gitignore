@@ -1,0 +1,27 @@
+*.canvas
+!assets/*.canvas
+
+# AI Agent & Assistant configurations
+.agents/
+.superpowers
+
+# Dynamically generated local scripts & temporary files
+reality_check.sh
+reality_rotate.sh
+async_deploy.sh
+fix_node.sh
+fallback_snis.txt
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment & Log files
+.env
+*.log
+logs/
+.DS_Store
+scratch/
+
+.notes
+.notes/
