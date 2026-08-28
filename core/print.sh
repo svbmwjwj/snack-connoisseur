@@ -267,19 +267,47 @@ function module_print() {
         return 0
     fi
 
+    mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 -o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    if [ -f "$SSH_CONFIG_PATH" ]; then
+        ssh_opts+=(-F "$SSH_CONFIG_PATH")
+    elif [ -f "$HOME/.ssh/config" ]; then
+        ssh_opts+=(-F "$HOME/.ssh/config")
+    fi
+
     # ----------------------------------------------------
-    # 模式 B: 默认订阅配置打印 (VLESS / QX)
+    # 模式 B: 默认订阅配置打印 (VLESS / QX) - 实时动态组装
     # ----------------------------------------------------
     for cur_alias in "${target_aliases[@]}"; do
         (
-            local remote_home
-            remote_home=$(ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$cur_alias" "eval echo ~\$USER" 2>/dev/null || echo "/home/admin")
-            local docker_dir="${remote_home}/docker-apps/xray"
+            local remote_info
+            remote_info=$(ssh "${ssh_opts[@]}" "$cur_alias" '
+                remote_home=$(eval echo ~$USER)
+                docker_dir="${remote_home}/docker-apps/xray"
+                server_host=$(grep "^SERVER_HOST=" ${docker_dir}/reality_rotate.sh 2>/dev/null | cut -d"\"" -f2 || true)
+                [ -z "$server_host" ] && server_host=$(grep "^SERVER_HOST=" ${docker_dir}/reality_check.sh 2>/dev/null | cut -d"\"" -f2 || true)
+                
+                vless=$(cat ${docker_dir}/vless.txt 2>/dev/null || true)
+                qx=$(cat ${docker_dir}/qx.txt 2>/dev/null || true)
+                
+                if [ -n "$server_host" ] && [ "$server_host" != "PLACEHOLDER_HOST" ]; then
+                    if [ -n "$vless" ]; then
+                        vless=$(echo "$vless" | sed -E "s|@[^:]+:([0-9]+)|@${server_host}:\1|g")
+                        echo "$vless" > "${docker_dir}/vless.txt" 2>/dev/null || true
+                    fi
+                    if [ -n "$qx" ]; then
+                        qx=$(echo "$qx" | sed -E "s|vless=[^:]+:([0-9]+)|vless=${server_host}:\1|g")
+                        echo "$qx" > "${docker_dir}/qx.txt" 2>/dev/null || true
+                    fi
+                fi
+                echo "---VLESS---"
+                echo "$vless"
+                echo "---QX---"
+                echo "$qx"
+            ' 2>/dev/null || true)
             
-            local vless_content
-            vless_content=$(ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$cur_alias" "cat ${docker_dir}/vless.txt 2>/dev/null" 2>/dev/null || true)
-            local qx_content
-            qx_content=$(ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$cur_alias" "cat ${docker_dir}/qx.txt 2>/dev/null" 2>/dev/null || true)
+            local vless_content=$(echo "$remote_info" | awk '/---VLESS---/{flag=1;next}/---QX---/{flag=0}flag' | sed '/^$/d')
+            local qx_content=$(echo "$remote_info" | awk '/---QX---/{flag=1;next}flag' | sed '/^$/d')
             
             if [ -n "$vless_content" ]; then
                 echo "$vless_content" > "${BATCH_TMP_DIR}/${cur_alias}.vless"

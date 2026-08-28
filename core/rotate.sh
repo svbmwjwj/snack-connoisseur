@@ -415,6 +415,12 @@ function module_rotate_dns() {
         sed -i 's/^SERVER_HOST=.*/SERVER_HOST=\"$FULL_DOMAIN\"/' ${DOCKER_APP_DIR}/reality_rotate.sh 2>/dev/null || true
         sed -i 's/^SERVER_HOST=.*/SERVER_HOST=\"$FULL_DOMAIN\"/' ${DOCKER_APP_DIR}/reality_check.sh 2>/dev/null || true
         sed -i 's/^SERVER_HOST=.*/SERVER_HOST=\"$FULL_DOMAIN\"/' ${DOCKER_APP_DIR}/runner.sh 2>/dev/null || true
+        if [ -f ${DOCKER_APP_DIR}/vless.txt ]; then
+            sed -i -E 's|@[^:]+:([0-9]+)|@$FULL_DOMAIN:\1|g' ${DOCKER_APP_DIR}/vless.txt 2>/dev/null || true
+        fi
+        if [ -f ${DOCKER_APP_DIR}/qx.txt ]; then
+            sed -i -E 's|vless=[^:]+:([0-9]+)|vless=$FULL_DOMAIN:\1|g' ${DOCKER_APP_DIR}/qx.txt 2>/dev/null || true
+        fi
     "
 
     if declare -f spawn_dns_convergence_worker >/dev/null 2>&1; then
