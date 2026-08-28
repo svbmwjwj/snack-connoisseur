@@ -12,7 +12,7 @@ if [ -f "$SCRIPT_DIR/update.sh" ]; then
     source "$SCRIPT_DIR/update.sh"
 fi
 
-SSH_CONFIG_PATH="${TEST_SSH_CONFIG:-$HOME/.ssh/config}"
+SSH_CONFIG_PATH="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
 
 function module_test_tg() {
     local alias="${1:-$SSH_ALIAS}"

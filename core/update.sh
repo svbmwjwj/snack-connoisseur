@@ -13,7 +13,7 @@ if [ -f "$LIB_DIR/security.sh" ]; then
     source "$LIB_DIR/security.sh"
 fi
 
-SSH_CONFIG_PATH="${TEST_SSH_CONFIG:-$HOME/.ssh/config}"
+SSH_CONFIG_PATH="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
 
 function sync_node_scripts() {
     local alias="$1"

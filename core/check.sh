@@ -12,7 +12,7 @@ if [ -f "$SCRIPT_DIR/update.sh" ]; then
     source "$SCRIPT_DIR/update.sh"
 fi
 
-SSH_CONFIG_PATH="${TEST_SSH_CONFIG:-$HOME/.ssh/config}"
+SSH_CONFIG_PATH="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
 
 function single_node_check() {
     local alias="$1"
@@ -45,6 +45,11 @@ function single_node_check() {
 
     local NODE_IP=$(echo "$NODE_INFO" | awk -F'|' '{print $1}')
     local NODE_SNI=$(echo "$NODE_INFO" | awk -F'|' '{print $2}')
+
+    # 尝试基于获取到的 SNI 进行被动伴随 DNS 升级（若当前 SSH 仍使用 IP，且域名已就绪）
+    if [ -n "$NODE_SNI" ] && [ "$NODE_SNI" != "null" ]; then
+        try_opportunistic_domain_upgrade "$alias" "$NODE_SNI"
+    fi
 
     # 2. 本地端到端 TLS 握手测试 (模拟境内客户端穿透出境)
     local LOCAL_LINK_STATUS="UNKNOWN"

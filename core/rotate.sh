@@ -13,7 +13,7 @@ if [ -f "$SCRIPT_DIR/update.sh" ]; then
     source "$SCRIPT_DIR/update.sh"
 fi
 
-SSH_CONFIG_PATH="${TEST_SSH_CONFIG:-$HOME/.ssh/config}"
+SSH_CONFIG_PATH="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
 
 function set_env_var() {
     local key="$1"
@@ -415,8 +415,8 @@ function module_rotate_dns() {
         sed -i 's/^SERVER_HOST=.*/SERVER_HOST=\"$FULL_DOMAIN\"/' ${DOCKER_APP_DIR}/runner.sh 2>/dev/null || true
     "
 
-    if declare -f upgrade_ssh_config_hostname >/dev/null 2>&1; then
-        upgrade_ssh_config_hostname "$alias" "$FULL_DOMAIN"
+    if declare -f spawn_dns_convergence_worker >/dev/null 2>&1; then
+        spawn_dns_convergence_worker "$alias" "$FULL_DOMAIN" "$IPV4"
     fi
 
     if [ "$CNSR_LANG" = "en" ]; then

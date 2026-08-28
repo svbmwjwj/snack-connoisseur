@@ -1,7 +1,8 @@
 #!/bin/bash
 # Snack Connoisseur - SSH & Config Management Functions
 
-SSH_CONFIG_PATH="${TEST_SSH_CONFIG:-$HOME/.ssh/config}"
+SSH_CONFIG="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
+SSH_CONFIG_PATH="$SSH_CONFIG"
 
 function ensure_ssh_alias() {
     local alias="$1"
@@ -9,11 +10,12 @@ function ensure_ssh_alias() {
     local user="$3"
     local port="${4:-22}"
     local identity_file="${5:-}"
+    local ssh_config="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
 
     python3 -c "
 import sys, os, re, fcntl
 
-config_path = os.path.expanduser('$SSH_CONFIG_PATH')
+config_path = os.path.expanduser(sys.argv[6])
 alias = sys.argv[1]
 ip = sys.argv[2]
 user = sys.argv[3]
@@ -131,55 +133,36 @@ with open(lock_path, 'w') as lock_f:
             f.write(new_content)
     finally:
         fcntl.flock(lock_f, fcntl.LOCK_UN)
-" "$alias" "$ip" "$user" "$port" "$identity_file"
+" "$alias" "$ip" "$user" "$port" "$identity_file" "$ssh_config"
+}
+
+function append_or_update_ssh_alias() {
+    ensure_ssh_alias "$@"
 }
 
 function get_ssh_config() {
     local alias="$1"
     local field="${2:-HostName}"
     local field_lower=$(echo "$field" | tr '[:upper:]' '[:lower:]')
+    local ssh_config="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
+    local val=""
 
-    python3 -c "
-import sys, os, re
-config_path = os.path.expanduser('$SSH_CONFIG_PATH')
-alias = sys.argv[1]
-field = sys.argv[2].lower()
-
-if not os.path.exists(config_path):
-    sys.exit(1)
-
-with open(config_path, 'r') as f:
-    content = f.read()
-
-header_matches = list(re.finditer(r'^[ \t]*Host[ \t]+([^\n]+)$', content, flags=re.MULTILINE))
-for i, m in enumerate(header_matches):
-    aliases = m.group(1).split()
-    if alias in aliases:
-        start = m.start()
-        end = header_matches[i+1].start() if i + 1 < len(header_matches) else len(content)
-        block_text = content[start:end]
-        for line in block_text.splitlines():
-            parts = line.strip().split(None, 1)
-            if len(parts) == 2 and parts[0].lower() == field:
-                print(parts[1])
-                sys.exit(0)
-sys.exit(1)
-" "$alias" "$field_lower" 2>/dev/null
+    if [ -f "$ssh_config" ]; then
+        val=$(ssh -F "$ssh_config" -G "$alias" 2>/dev/null | awk -v key="$field_lower" '$1 == key {print $2; exit}')
+    else
+        val=$(ssh -G "$alias" 2>/dev/null | awk -v key="$field_lower" '$1 == key {print $2; exit}')
+    fi
+    echo "$val"
 }
 
 function get_real_host() {
     local alias="${1:-$SSH_ALIAS}"
+    if [ -z "$alias" ]; then
+        echo ""
+        return 0
+    fi
     local host=""
-    if [ -n "$alias" ]; then
-        host=$(get_ssh_config "$alias" "HostName")
-    fi
-    if [ -z "$host" ]; then
-        if [ -f "$SSH_CONFIG_PATH" ]; then
-            host=$(ssh -F "$SSH_CONFIG_PATH" -G "$alias" 2>/dev/null | awk '/^hostname / {print $2}')
-        else
-            host=$(ssh -G "$alias" 2>/dev/null | awk '/^hostname / {print $2}')
-        fi
-    fi
+    host=$(get_ssh_config "$alias" "HostName")
     if [ -z "$host" ]; then
         host="$alias"
     fi
@@ -189,13 +172,14 @@ function get_real_host() {
 function check_ssh_conn() {
     local target="$1"
     local timeout="${2:-5}"
+    local ssh_config="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
     local opts=(
         -o BatchMode=yes
         -o StrictHostKeyChecking=no
         -o ConnectTimeout="$timeout"
     )
-    if [ -f "$SSH_CONFIG_PATH" ]; then
-        opts+=(-F "$SSH_CONFIG_PATH")
+    if [ -f "$ssh_config" ]; then
+        opts+=(-F "$ssh_config")
     fi
     ssh "${opts[@]}" "$target" "echo alive" >/dev/null 2>&1
 }
@@ -260,9 +244,10 @@ function guess_default_user() {
 
 function detect_remote_ipv6() {
     local target="$1"
+    local ssh_config="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
     local opts=(-o BatchMode=yes)
-    if [ -f "$SSH_CONFIG_PATH" ]; then
-        opts+=(-F "$SSH_CONFIG_PATH")
+    if [ -f "$ssh_config" ]; then
+        opts+=(-F "$ssh_config")
     fi
     ssh "${opts[@]}" "$target" "
         ip=\$(hostname -I 2>/dev/null | tr ' ' '\n' | grep ':' | grep -v '^fe80' | grep -v '^fc' | grep -v '^fd' | head -n1)
@@ -273,27 +258,51 @@ function detect_remote_ipv6() {
     " 2>/dev/null || true
 }
 
+function resolve_domain_ip_doh() {
+    local domain="$1"
+    python3 -c "
+import sys, json, socket, urllib.request
+
+domain = sys.argv[1]
+try:
+    req = urllib.request.Request(
+        f'https://cloudflare-dns.com/dns-query?name={domain}&type=A',
+        headers={'Accept': 'application/dns-json'}
+    )
+    with urllib.request.urlopen(req, timeout=3) as response:
+        data = json.loads(response.read().decode('utf-8'))
+        if 'Answer' in data:
+            for ans in data['Answer']:
+                if ans.get('type') == 1:
+                    print(ans.get('data', ''))
+                    sys.exit(0)
+except Exception:
+    pass
+
+try:
+    ip = socket.gethostbyname(domain)
+    if ip:
+        print(ip)
+        sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+" "$domain" 2>/dev/null || true
+}
+
 function upgrade_ssh_config_hostname() {
     local alias="$1"
     local domain="$2"
+    local ssh_config="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
 
     if [ -z "$domain" ]; then
         return 0
     fi
 
-    echo "🔍 正在对本地网络校验新生成域名的 DNS 解析状态 ($domain)..."
-    local resolved_ip=""
-    for i in {1..5}; do
-        resolved_ip=$(python3 -c "import socket; print(socket.gethostbyname('$domain'))" 2>/dev/null || true)
-        if [ -n "$resolved_ip" ]; then break; fi
-        sleep 1
-    done
-
-    if [ -n "$resolved_ip" ]; then
-        ssh-keygen -R "$domain" >/dev/null 2>&1 || true
-        python3 -c "
+    ssh-keygen -R "$domain" >/dev/null 2>&1 || true
+    python3 -c "
 import sys, os, re, fcntl
-config_path = os.path.expanduser('$SSH_CONFIG_PATH')
+config_path = os.path.expanduser(sys.argv[3])
 alias = sys.argv[1]
 domain = sys.argv[2]
 lock_path = config_path + '.lock'
@@ -331,15 +340,65 @@ try:
                 fcntl.flock(lock_f, fcntl.LOCK_UN)
 except Exception as e:
     pass
-" "$alias" "$domain" 2>/dev/null || true
-    else
-        echo "ℹ️ 新伪装域名 ($domain) 全网 DNS 广播扩散中，当前本地 SSH Config 维持 IP 连接以保障稳定。"
+" "$alias" "$domain" "$ssh_config" 2>/dev/null || true
+}
+
+function spawn_dns_convergence_worker() {
+    local alias="$1"
+    local domain="$2"
+    local expected_ip="$3"
+    local ssh_config="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
+    local lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    (
+        nohup bash -c '
+            alias="$1"
+            domain="$2"
+            expected_ip="$3"
+            ssh_config="$4"
+            lib_dir="$5"
+
+            source "$lib_dir/ssh.sh"
+
+            sleep 3
+
+            intervals=(5 5 5 5 5 5 10 10 10 10 10 10 15 15 15 15 15 15)
+
+            for wait_time in "${intervals[@]}"; do
+                resolved_ip=$(resolve_domain_ip_doh "$domain")
+                if [ -n "$resolved_ip" ]; then
+                    upgrade_ssh_config_hostname "$alias" "$domain" >/dev/null 2>&1
+                    exit 0
+                fi
+                sleep "$wait_time"
+            done
+            exit 0
+        ' _ "$alias" "$domain" "$expected_ip" "$ssh_config" "$lib_dir" >/dev/null 2>&1 &
+    )
+}
+
+function try_opportunistic_domain_upgrade() {
+    local alias="$1"
+    local domain="$2"
+    if [ -z "$alias" ] || [ -z "$domain" ]; then
+        return 0
+    fi
+    
+    local current_host
+    current_host=$(get_ssh_config "$alias" "HostName")
+    
+    if [[ "$current_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        local resolved_ip
+        resolved_ip=$(resolve_domain_ip_doh "$domain")
+        if [ -n "$resolved_ip" ]; then
+            upgrade_ssh_config_hostname "$alias" "$domain" >/dev/null 2>&1
+        fi
     fi
 }
 
 function remove_ssh_alias() {
     local pattern="$1"
-    local cfg="${TEST_SSH_CONFIG:-${SSH_CONFIG_PATH:-$HOME/.ssh/config}}"
+    local ssh_config="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
     python3 -c "
 import sys, os, re, fnmatch
 config_path = os.path.expanduser(sys.argv[1])
@@ -377,7 +436,7 @@ with open(config_path, 'w') as f:
         f.write(res_str + '\n')
     else:
         f.write('')
-" "$cfg" "$pattern"
+" "$ssh_config" "$pattern"
 }
 
 

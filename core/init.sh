@@ -600,8 +600,7 @@ EOF'
         echo "💡 [提示] 您现在可以安全关闭本窗口。后续的部署与体检流程将由服务器在后台全自动接管，进度会实时推送到 Telegram。"
     fi
 
-    # 单机模式下可升级 SSH 域名；批量编排模式下维持直连 IP 以保障 100% 连接可靠性
-    if [ "${BATCH_MODE:-false}" != "true" ]; then
-        upgrade_ssh_config_hostname "$SSH_ALIAS" "$FULL_DOMAIN"
-    fi
+    # 无论单机还是批量模式，统一孵化后台 DNS 域名收敛 Worker，实现零等待、不阻塞主流程的域名替换
+    spawn_dns_convergence_worker "$SSH_ALIAS" "$FULL_DOMAIN" "$IPV4"
+    echo "ℹ️ 已在后台挂载 DNS 域名收敛任务，待新域名 ($FULL_DOMAIN) 在 Cloudflare 生效后，本地 SSH 配置将自动平滑升级。"
 }

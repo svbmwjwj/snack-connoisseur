@@ -1,7 +1,7 @@
 #!/bin/bash
 # Snack Connoisseur - Security & System Hardening Library
 
-SSH_CONFIG_PATH="${TEST_SSH_CONFIG:-$HOME/.ssh/config}"
+SSH_CONFIG_PATH="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
 
 _SEC_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$_SEC_LIB_DIR/ssh.sh" ]; then

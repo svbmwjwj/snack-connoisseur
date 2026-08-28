@@ -1,27 +1,31 @@
-*.canvas
-!assets/*.canvas
-
-# AI Agent & Assistant configurations
+# 1. 智能体与知识库软链接 (Local Symlinks - 严禁推送到远程仓库)
 .agents/
 .superpowers
+.superpowers/
+superpowers
+superpowers/
+.notes
+.notes/
 
-# Dynamically generated local scripts & temporary files
+# 2. 废弃的 Canvas 格式
+*.canvas
+
+# 3. Python 虚拟环境与测试缓存
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 4. 运行时动态生成的探针脚本与临时数据
 reality_check.sh
 reality_rotate.sh
 async_deploy.sh
 fix_node.sh
 fallback_snis.txt
 
-# Python cache
-__pycache__/
-*.py[cod]
-
-# Environment & Log files
+# 5. 凭据、日志与系统缓存
 .env
 *.log
 logs/
 .DS_Store
 scratch/
-
-.notes
-.notes/

@@ -421,7 +421,71 @@ Host sg-node-1
         self.assertNotIn("jp-node-2", content)
         self.assertIn("sg-node-1", content)
 
+    def test_ssh_config_path_env_injection(self):
+        """SSH_CONFIG_PATH environment variable overrides default path and applies to all operations."""
+        custom_config = os.path.join(self.temp_dir, "custom_ssh_config")
+        cmd = f"""
+        export SSH_CONFIG_PATH="{custom_config}"
+        source "{self.ssh_sh}"
+        append_or_update_ssh_alias "env_injected" "198.51.100.88" "admin" "22"
+        """
+        res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"Failed with: {res.stderr}")
+        self.assertTrue(os.path.exists(custom_config))
+
+        with open(custom_config, "r") as f:
+            content = f.read()
+        self.assertIn("Host env_injected", content)
+        self.assertIn("HostName 198.51.100.88", content)
+
+    def test_openssh_include_directive_resolution(self):
+        """OpenSSH Include directive should be transparently resolved by get_ssh_config and get_real_host."""
+        sub_dir = os.path.join(self.temp_dir, "conf.d")
+        os.makedirs(sub_dir, exist_ok=True)
+        sub_config = os.path.join(sub_dir, "nodes.conf")
+
+        with open(sub_config, "w") as f:
+            f.write("""Host included-worker
+    HostName 203.0.113.99
+    User devops
+    Port 2222
+""")
+
+        with open(self.test_ssh_config, "w") as f:
+            f.write(f"""Include {sub_config}
+
+Host local-node
+    HostName 127.0.0.1
+    User root
+""")
+
+        # Query included alias via get_ssh_config
+        cmd_get = f"""
+        export SSH_CONFIG_PATH="{self.test_ssh_config}"
+        source "{self.ssh_sh}"
+        get_ssh_config "included-worker" "HostName"
+        get_ssh_config "included-worker" "User"
+        get_ssh_config "included-worker" "Port"
+        """
+        res_get = subprocess.run(["bash", "-c", cmd_get], capture_output=True, text=True)
+        self.assertEqual(res_get.returncode, 0)
+        lines = res_get.stdout.strip().splitlines()
+        self.assertEqual(lines[0], "203.0.113.99")
+        self.assertEqual(lines[1], "devops")
+        self.assertEqual(lines[2], "2222")
+
+        # Query included alias via get_real_host
+        cmd_real = f"""
+        export SSH_CONFIG_PATH="{self.test_ssh_config}"
+        source "{self.ssh_sh}"
+        get_real_host "included-worker"
+        """
+        res_real = subprocess.run(["bash", "-c", cmd_real], capture_output=True, text=True)
+        self.assertEqual(res_real.returncode, 0)
+        self.assertEqual(res_real.stdout.strip(), "203.0.113.99")
+
 if __name__ == "__main__":
     unittest.main()
+
 
 
