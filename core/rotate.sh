@@ -305,7 +305,8 @@ function module_rotate_sni() {
         return $sync_status
     fi
 
-    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
     if [ -f "$SSH_CONFIG_PATH" ]; then
         ssh_opts+=(-F "$SSH_CONFIG_PATH")
     fi
@@ -369,7 +370,8 @@ function module_rotate_dns() {
         echo "🌐 开始洗白 DNS 域名矩阵: [$alias]..."
     fi
 
-    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
     if [ -f "$SSH_CONFIG_PATH" ]; then
         ssh_opts+=(-F "$SSH_CONFIG_PATH")
     fi
@@ -438,7 +440,8 @@ function module_rotate_ip() {
         return 1
     fi
 
-    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
     if [ -f "$SSH_CONFIG_PATH" ]; then
         ssh_opts+=(-F "$SSH_CONFIG_PATH")
     fi

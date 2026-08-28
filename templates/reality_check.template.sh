@@ -174,12 +174,41 @@ echo "   - [Outbound] Cloudflare: ${OUT_CF}"
 
 rm -f /tmp/ping_*
 
+function detect_local_ipv4() {
+    local detected_ip=$(curl -4 -s --connect-timeout 3 icanhazip.com 2>/dev/null || curl -4 -s --connect-timeout 3 ifconfig.me 2>/dev/null || curl -4 -s --connect-timeout 3 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || echo 'none')
+    [ -z "$detected_ip" ] && detected_ip='none'
+    echo "$detected_ip"
+}
+
+function detect_local_ipv6() {
+    local detected_ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep ':' | grep -v '^fe80' | grep -v '^fc' | grep -v '^fd' | head -n1)
+    if [ -z "$detected_ip" ]; then
+        detected_ip=$(ip -6 addr show scope global 2>/dev/null | awk '/inet6/ {print $2}' | cut -d/ -f1 | grep -v '^fe80' | grep -v '^fc' | grep -v '^fd' | head -n1)
+    fi
+    if [ -z "$detected_ip" ]; then
+        local mac=$(curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/mac 2>/dev/null || true)
+        [ -n "$mac" ] && detected_ip=$(curl -s --connect-timeout 2 "http://169.254.169.254/latest/meta-data/network/interfaces/macs/${mac}/ipv6s" 2>/dev/null | head -n1 || true)
+    fi
+    if [ -z "$detected_ip" ]; then
+        detected_ip=$(curl -6 -s --connect-timeout 3 https://api64.ipify.org 2>/dev/null || curl -6 -s --connect-timeout 3 https://icanhazip.com 2>/dev/null || echo 'none')
+    fi
+    [ -z "$detected_ip" ] && detected_ip='none'
+    echo "$detected_ip"
+}
+
 # 2. 域名解析检查
 echo "🌐 检查域名解析状态..."
+if [ -z "$TARGET_IP" ] || [ "$TARGET_IP" = "PLACEHOLDER_""IP" ] || [[ ! "$TARGET_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    TARGET_IP=$(detect_local_ipv4)
+fi
+if [ -z "$TARGET_IPV6" ] || [ "$TARGET_IPV6" = "none" ] || [ "$TARGET_IPV6" = "PLACEHOLDER_""IPV6" ] || [ "$TARGET_IPV6" = "N/A" ]; then
+    TARGET_IPV6=$(detect_local_ipv6)
+fi
+
 RESOLVED_IP=$(getent hosts "$SERVER_HOST" 2>/dev/null | awk '{print $1}' | head -n1)
 if [ -z "$RESOLVED_IP" ]; then
     DOMAIN_STATUS="🔴 Failed"
-elif [ "$RESOLVED_IP" = "$TARGET_IP" ] || [ "$RESOLVED_IP" = "$TARGET_IPV6" ]; then
+elif [ "$RESOLVED_IP" = "$TARGET_IP" ] || { [ -n "$TARGET_IPV6" ] && [ "$TARGET_IPV6" != "none" ] && [ "$RESOLVED_IP" = "$TARGET_IPV6" ]; }; then
     DOMAIN_STATUS="🟢 Direct match"
 else
     DOMAIN_STATUS="🟡 Proxy/Abnormal ($RESOLVED_IP)"
@@ -347,25 +376,6 @@ elif [[ "$DOMAIN_STATUS" == *"🟡"* ]] || [[ "$TFO_STATUS" == *"🟡"* ]] || [ 
     CONCLUSION="🟡 Warning (Suboptimal / Incomplete)"
 fi
 
-function detect_local_ipv6() {
-    local detected_ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep ':' | grep -v '^fe80' | grep -v '^fc' | grep -v '^fd' | head -n1)
-    if [ -z "$detected_ip" ]; then
-        detected_ip=$(ip -6 addr show scope global 2>/dev/null | awk '/inet6/ {print $2}' | cut -d/ -f1 | grep -v '^fe80' | grep -v '^fc' | grep -v '^fd' | head -n1)
-    fi
-    if [ -z "$detected_ip" ]; then
-        local mac=$(curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/mac 2>/dev/null || true)
-        [ -n "$mac" ] && detected_ip=$(curl -s --connect-timeout 2 "http://169.254.169.254/latest/meta-data/network/interfaces/macs/${mac}/ipv6s" 2>/dev/null | head -n1 || true)
-    fi
-    if [ -z "$detected_ip" ]; then
-        detected_ip=$(curl -6 -s --connect-timeout 3 https://api64.ipify.org 2>/dev/null || curl -6 -s --connect-timeout 3 https://icanhazip.com 2>/dev/null || echo 'none')
-    fi
-    [ -z "$detected_ip" ] && detected_ip='none'
-    echo "$detected_ip"
-}
-
-if [ -z "$TARGET_IPV6" ] || [ "$TARGET_IPV6" = "none" ] || [ "$TARGET_IPV6" = "PLACEHOLDER_""IPV6" ] || [ "$TARGET_IPV6" = "N/A" ]; then
-    TARGET_IPV6=$(detect_local_ipv6)
-fi
 DISPLAY_IPV4="$TARGET_IP"
 DISPLAY_IPV6="$TARGET_IPV6"
 if [ -z "$DISPLAY_IPV6" ] || [ "$DISPLAY_IPV6" = "none" ] || [ "$DISPLAY_IPV6" = "PLACEHOLDER_""IPV6" ]; then

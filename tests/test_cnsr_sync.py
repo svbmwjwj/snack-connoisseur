@@ -89,6 +89,10 @@ sanitize_env_for_node "{out_env_path}"
 echo "SSH_CALL: $@" >> "{log_file}"
 # Handle specific subcommands
 cmd="$*"
+if [[ "$cmd" == *"hashes="* ]] || [[ "$cmd" == *"docker_dir="* ]]; then
+    echo "/home/admin|198.51.100.22|2001:db8:1234::1|node-v123.example.com|"
+    exit 0
+fi
 if [[ "$cmd" == *"eval echo ~"* ]]; then
     echo "/home/admin"
     exit 0
@@ -203,6 +207,7 @@ sync_node_scripts "sg_test_node"
             with open(mock_ssh, "w") as f:
                 f.write(f"""#!/bin/bash
 echo "SSH_CALL: $@" >> "{log_file}"
+if [[ "$*" == *"hashes="* ]] || [[ "$*" == *"docker_dir="* ]]; then echo "/home/admin|198.51.100.99|2001:db8:1234::1|node-v123.example.com|"; exit 0; fi
 if [[ "$*" == *"eval echo ~"* ]]; then echo "/home/admin"; exit 0; fi
 if [[ "$*" == *"-G"* ]]; then echo "hostname 198.51.100.99"; exit 0; fi
 if [[ "$*" == *"curl -4"* ]]; then echo "198.51.100.99"; exit 0; fi
