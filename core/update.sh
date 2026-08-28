@@ -164,18 +164,21 @@ function sync_node_scripts() {
     fi
 
     ssh "${ssh_opts[@]}" "$alias" "mkdir -p ${DOCKER_APP_DIR}/conf"
-    scp "${scp_opts[@]}" "$TMP_SYNC_DIR/runner.sh" "$alias":${DOCKER_APP_DIR}/runner.sh
-    scp "${scp_opts[@]}" "$TMP_SYNC_DIR/reality_rotate.sh" "$alias":${DOCKER_APP_DIR}/reality_rotate.sh
-    scp "${scp_opts[@]}" "$TMP_SYNC_DIR/reality_check.sh" "$alias":${DOCKER_APP_DIR}/reality_check.sh
-    scp "${scp_opts[@]}" "$TMP_SYNC_DIR/tg_templates.sh" "$alias":${DOCKER_APP_DIR}/tg_templates.sh
-    scp "${scp_opts[@]}" "$TMP_SYNC_DIR/.env" "$alias":${DOCKER_APP_DIR}/.env
-
+    local files_to_sync=(
+        "$TMP_SYNC_DIR/runner.sh"
+        "$TMP_SYNC_DIR/reality_rotate.sh"
+        "$TMP_SYNC_DIR/reality_check.sh"
+        "$TMP_SYNC_DIR/tg_templates.sh"
+        "$TMP_SYNC_DIR/.env"
+    )
     if [ -f "$REPO_DIR/tools/reality-checker" ]; then
-        scp "${scp_opts[@]}" "$REPO_DIR/tools/reality-checker" "$alias":${DOCKER_APP_DIR}/reality-checker
+        files_to_sync+=("$REPO_DIR/tools/reality-checker")
     fi
     if [ -f "$REPO_DIR/fallback_snis.txt" ]; then
-        scp "${scp_opts[@]}" "$REPO_DIR/fallback_snis.txt" "$alias":${DOCKER_APP_DIR}/fallback_snis.txt
+        files_to_sync+=("$REPO_DIR/fallback_snis.txt")
     fi
+
+    scp "${scp_opts[@]}" "${files_to_sync[@]}" "$alias":${DOCKER_APP_DIR}/
 
     # 6. 赋予执行权限并挂载/刷新 Crontab 为 runner.sh
     ssh "${ssh_opts[@]}" "$alias" "

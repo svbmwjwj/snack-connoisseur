@@ -40,15 +40,17 @@ function single_node_check() {
     local NODE_INFO=$(ssh "${ssh_opts[@]}" "$alias" "
         sni=\$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0] // \"\"' ${DOCKER_APP_DIR}/conf/config.json 2>/dev/null || true)
         ip=\$(curl -4 -s -m 3 ifconfig.me 2>/dev/null || hostname -I 2>/dev/null | awk '{print \$1}')
-        echo \"\${ip}|\${sni}\"
-    " 2>/dev/null || echo "|")
+        server_host=\$(grep '^SERVER_HOST=' ${DOCKER_APP_DIR}/reality_check.sh 2>/dev/null | cut -d'\"' -f2 || true)
+        echo \"\${ip}|\${sni}|\${server_host}\"
+    " 2>/dev/null || echo "||")
 
     local NODE_IP=$(echo "$NODE_INFO" | awk -F'|' '{print $1}')
     local NODE_SNI=$(echo "$NODE_INFO" | awk -F'|' '{print $2}')
+    local SERVER_HOST=$(echo "$NODE_INFO" | awk -F'|' '{print $3}')
 
-    # 尝试基于获取到的 SNI 进行被动伴随 DNS 升级（若当前 SSH 仍使用 IP，且域名已就绪）
-    if [ -n "$NODE_SNI" ] && [ "$NODE_SNI" != "null" ]; then
-        try_opportunistic_domain_upgrade "$alias" "$NODE_SNI"
+    # 尝试基于获取到的服务器域名 进行被动伴随 DNS 升级（若当前 SSH 仍使用 IP，且域名已就绪）
+    if [ -n "$SERVER_HOST" ] && [ "$SERVER_HOST" != "null" ]; then
+        try_opportunistic_domain_upgrade "$alias" "$SERVER_HOST"
     fi
 
     # 2. 本地端到端 TLS 握手测试 (模拟境内客户端穿透出境)
