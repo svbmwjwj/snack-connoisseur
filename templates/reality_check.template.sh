@@ -205,26 +205,34 @@ if [ -z "$TARGET_IPV6" ] || [ "$TARGET_IPV6" = "none" ] || [ "$TARGET_IPV6" = "P
     TARGET_IPV6=$(detect_local_ipv6)
 fi
 
-RESOLVED_IP=$(getent hosts "$SERVER_HOST" 2>/dev/null | awk '{print $1}' | head -n1)
-if [ -z "$RESOLVED_IP" ]; then
-    DOMAIN_STATUS="🔴 Failed"
-elif [ "$RESOLVED_IP" = "$TARGET_IP" ] || { [ -n "$TARGET_IPV6" ] && [ "$TARGET_IPV6" != "none" ] && [ "$RESOLVED_IP" = "$TARGET_IPV6" ]; }; then
-    DOMAIN_STATUS="🟢 Direct match"
+if [[ "$SERVER_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$SERVER_HOST" =~ ":" ]]; then
+    DOMAIN_STATUS="未分配 (IP 直连)"
+    RESOLVED_IP="$SERVER_HOST"
+    GLOBAL_RESOLVE="N/A"
+    GLOBAL_STATUS="🟢 Direct match"
+    echo "   - $SERVER_HOST 解析至: IP 直连跳过 DNS ($DOMAIN_STATUS)"
 else
-    DOMAIN_STATUS="🟡 Proxy/Abnormal ($RESOLVED_IP)"
-fi
-echo "   - $SERVER_HOST 解析至: ${RESOLVED_IP:-N/A} ($DOMAIN_STATUS)"
-
-GLOBAL_RESOLVE=$(dig @1.1.1.1 +short +time=3 +tries=2 "$SERVER_HOST" A 2>/dev/null | tail -n1)
-if [ -n "$GLOBAL_RESOLVE" ]; then
-    echo "   - $SERVER_HOST 全球 DNS (1.1.1.1): $GLOBAL_RESOLVE"
-    if [ "$GLOBAL_RESOLVE" != "$TARGET_IP" ]; then
-        GLOBAL_STATUS="🟡 Mismatch ($GLOBAL_RESOLVE)"
+    RESOLVED_IP=$(getent hosts "$SERVER_HOST" 2>/dev/null | awk '{print $1}' | head -n1)
+    if [ -z "$RESOLVED_IP" ]; then
+        DOMAIN_STATUS="🔴 Failed"
+    elif [ "$RESOLVED_IP" = "$TARGET_IP" ] || { [ -n "$TARGET_IPV6" ] && [ "$TARGET_IPV6" != "none" ] && [ "$RESOLVED_IP" = "$TARGET_IPV6" ]; }; then
+        DOMAIN_STATUS="🟢 Direct match"
     else
-        GLOBAL_STATUS="🟢 OK"
+        DOMAIN_STATUS="🟡 Proxy/Abnormal ($RESOLVED_IP)"
     fi
-else
-    GLOBAL_STATUS="🔴 Query Failed"
+    echo "   - $SERVER_HOST 解析至: ${RESOLVED_IP:-N/A} ($DOMAIN_STATUS)"
+
+    GLOBAL_RESOLVE=$(dig @1.1.1.1 +short +time=3 +tries=2 "$SERVER_HOST" A 2>/dev/null | tail -n1)
+    if [ -n "$GLOBAL_RESOLVE" ]; then
+        echo "   - $SERVER_HOST 全球 DNS (1.1.1.1): $GLOBAL_RESOLVE"
+        if [ "$GLOBAL_RESOLVE" != "$TARGET_IP" ]; then
+            GLOBAL_STATUS="🟡 Mismatch ($GLOBAL_RESOLVE)"
+        else
+            GLOBAL_STATUS="🟢 OK"
+        fi
+    else
+        GLOBAL_STATUS="🔴 Query Failed"
+    fi
 fi
 
 # 3. 提取当前 SNI 状态

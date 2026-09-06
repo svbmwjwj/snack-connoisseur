@@ -56,6 +56,17 @@ function tpl_node_config() {
     local qx_config="$8"
     local vless_uri="$9"
 
+    local display_host="$host"
+    if [ -z "$display_host" ] || [ "$display_host" = "none" ] || [ "$display_host" = "PLACEHOLDER_HOST" ] || [[ "$display_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        if [ "$CNSR_LANG" = "en" ]; then
+            display_host="Unassigned (Direct IP)"
+        else
+            display_host="未分配 (IP 直连)"
+        fi
+    else
+        display_host="\`${display_host}\`"
+    fi
+
     if [ "$CNSR_LANG" = "en" ]; then
         local title="🚀 *X-ray Node Deployed*"
         if [ "$is_init" != "true" ]; then
@@ -66,7 +77,7 @@ function tpl_node_config() {
 ${TEST_PREFIX}${title}
 
 - *Node Alias*: \`${alias}\`
-- *Domain*: \`${host}\`
+- *Domain*: ${display_host}
 - *Target SNI*: \`${sni}\`
 
 - *Quantumult X Config*:
@@ -89,8 +100,8 @@ EOF
 ${TEST_PREFIX}${title}
 
 - *节点别名*: \`${alias}\`
-- *伪装域名*: \`${host}\`
-- *目标 SNI*: \`${sni}\`
+- *节点域名*: ${display_host}
+- *伪装域名 (SNI)*: \`${sni}\`
 
 - *Quantumult X 配置*:
 \`\`\`text
@@ -167,12 +178,25 @@ function tpl_health_full() {
     local port_listen="${29}"
 
     local display_ipv6="$ipv6"
-    if [ -z "$display_ipv6" ] || [ "$display_ipv6" = "N/A" ] || [ "$display_ipv6" = "none" ]; then
+    if [ -z "$display_ipv6" ] || [ "$display_ipv6" = "N/A" ] || [ "$display_ipv6" = "none" ] || [ "$display_ipv6" = "PLACEHOLDER_IPV6" ]; then
         if [ "$CNSR_LANG" = "en" ]; then
             display_ipv6="Unassigned (IPv4-Only)"
         else
             display_ipv6="未分配 (IPv4-Only)"
         fi
+    else
+        display_ipv6="\`${display_ipv6}\`"
+    fi
+
+    local display_host="$host"
+    if [ -z "$display_host" ] || [ "$display_host" = "none" ] || [ "$display_host" = "PLACEHOLDER_HOST" ] || [[ "$display_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        if [ "$CNSR_LANG" = "en" ]; then
+            display_host="Unassigned (Direct IP)"
+        else
+            display_host="未分配 (IP 直连)"
+        fi
+    else
+        display_host="\`${display_host}\`"
     fi
 
     if [ "$CNSR_LANG" = "en" ]; then
@@ -184,8 +208,8 @@ ${TEST_PREFIX}🩺 *X-ray Node Health Report*
 
 🌐 *Network & DNS*
 - *IPv4*: \`${ipv4}\`
-- *IPv6*: \`${display_ipv6}\`
-- *Domain*: \`${host}\`
+- *IPv6*: ${display_ipv6}
+- *Domain*: ${display_host}
 - *DNS Status*: ${domain_status}
 - *Global DNS (1.1.1.1)*: ${global_dns}
 
@@ -226,8 +250,8 @@ ${TEST_PREFIX}🩺 *X-ray 节点深度体检报告*
 
 🌐 *网络与 DNS 解析*
 - *IPv4 地址*: \`${ipv4}\`
-- *IPv6 地址*: \`${display_ipv6}\`
-- *伪装域名*: \`${host}\`
+- *IPv6 地址*: ${display_ipv6}
+- *节点域名*: ${display_host}
 - *解析状态*: ${domain_status}
 - *全球解析 (1.1.1.1)*: ${global_dns}
 

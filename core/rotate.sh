@@ -80,7 +80,7 @@ function generate_cf_domain() {
             local CF_DOMAIN_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID" \
                 -H "Authorization: Bearer $CF_API_TOKEN" \
                 -H "Content-Type: application/json")
-            CF_BASE=$(cd "$REPO_DIR" && uv run python3 -c "
+            CF_BASE=$(cd "$REPO_DIR" && uv run python -c "
 import sys, json
 try:
     data = json.loads(sys.stdin.read())
@@ -126,7 +126,7 @@ except Exception:
         [ "$sleep_time" -gt 0 ] && sleep "$sleep_time"
     done
 
-    local OLD_A_IDS=$(cd "$REPO_DIR" && uv run python3 -c "
+    local OLD_A_IDS=$(cd "$REPO_DIR" && uv run python -c "
 import sys, json
 try:
     data = json.loads(sys.stdin.read())
@@ -157,7 +157,7 @@ except Exception:
             -H "Content-Type: application/json" \
             --data '{"type":"A","name":"'"$CF_SUBDOMAIN"'","content":"'"$ip_v4"'","ttl":1,"proxied":false,"comment":"'"$alias"'"}' 2>/dev/null)
 
-        A_SUCCESS=$(cd "$REPO_DIR" && uv run python3 -c "
+        A_SUCCESS=$(cd "$REPO_DIR" && uv run python -c "
 import sys, json
 try:
     data = json.loads(sys.stdin.read())
@@ -177,7 +177,7 @@ except Exception:
     done
 
     if [ "$A_SUCCESS" != "true" ]; then
-        local ERR_MSG=$(cd "$REPO_DIR" && uv run python3 -c "
+        local ERR_MSG=$(cd "$REPO_DIR" && uv run python -c "
 import sys, json
 try:
     data = json.loads(sys.stdin.read())
@@ -195,7 +195,7 @@ except Exception:
     fi
     
     if [ "$ip_v6" != "none" ] && [ -n "$ip_v6" ]; then
-        local OLD_AAAA_IDS=$(cd "$REPO_DIR" && uv run python3 -c "
+        local OLD_AAAA_IDS=$(cd "$REPO_DIR" && uv run python -c "
 import sys, json
 try:
     data = json.loads(sys.stdin.read())
@@ -226,7 +226,7 @@ except Exception:
                 -H "Content-Type: application/json" \
                 --data '{"type":"AAAA","name":"'"$CF_SUBDOMAIN"'","content":"'"$ip_v6"'","ttl":1,"proxied":false,"comment":"'"$alias"'"}' 2>/dev/null)
 
-            AAAA_SUCCESS=$(cd "$REPO_DIR" && uv run python3 -c "
+            AAAA_SUCCESS=$(cd "$REPO_DIR" && uv run python -c "
 import sys, json
 try:
     data = json.loads(sys.stdin.read())
@@ -246,7 +246,7 @@ except Exception:
         done
 
         if [ "$AAAA_SUCCESS" != "true" ]; then
-            local ERR_V6=$(cd "$REPO_DIR" && uv run python3 -c "
+            local ERR_V6=$(cd "$REPO_DIR" && uv run python -c "
 import sys, json
 try:
     data = json.loads(sys.stdin.read())
@@ -305,8 +305,13 @@ function module_rotate_sni() {
         return $sync_status
     fi
 
-    mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
-    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    if [[ "$OSTYPE" != "msys" && "$OSTYPE" != "cygwin" ]]; then
+        mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+        ssh_opts+=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    else
+        ssh_opts+=(-o ControlMaster=no -o ControlPath=none)
+    fi
     if [ -f "$SSH_CONFIG_PATH" ]; then
         ssh_opts+=(-F "$SSH_CONFIG_PATH")
     fi
@@ -370,8 +375,13 @@ function module_rotate_dns() {
         echo "🌐 开始洗白 DNS 域名矩阵: [$alias]..."
     fi
 
-    mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
-    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    if [[ "$OSTYPE" != "msys" && "$OSTYPE" != "cygwin" ]]; then
+        mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+        ssh_opts+=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    else
+        ssh_opts+=(-o ControlMaster=no -o ControlPath=none)
+    fi
     if [ -f "$SSH_CONFIG_PATH" ]; then
         ssh_opts+=(-F "$SSH_CONFIG_PATH")
     fi
@@ -446,8 +456,13 @@ function module_rotate_ip() {
         return 1
     fi
 
-    mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
-    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    if [[ "$OSTYPE" != "msys" && "$OSTYPE" != "cygwin" ]]; then
+        mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+        ssh_opts+=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    else
+        ssh_opts+=(-o ControlMaster=no -o ControlPath=none)
+    fi
     if [ -f "$SSH_CONFIG_PATH" ]; then
         ssh_opts+=(-F "$SSH_CONFIG_PATH")
     fi
@@ -481,9 +496,9 @@ function module_rotate_ip() {
     fi
 
     # Delegate to providers/aws.py using uv run
-    local ROTATE_RESULT=$(cd "$REPO_DIR" && uv run python3 providers/aws.py rotate-ip --alias "$alias" --region "$AWS_REGION" 2>/dev/null || true)
+    local ROTATE_RESULT=$(cd "$REPO_DIR" && uv run python providers/aws.py rotate-ip --alias "$alias" --region "$AWS_REGION" 2>/dev/null || true)
 
-    local NEW_IP=$(cd "$REPO_DIR" && uv run python3 -c "
+    local NEW_IP=$(cd "$REPO_DIR" && uv run python -c "
 import sys, json
 try:
     data = json.loads('''$ROTATE_RESULT''')
@@ -518,17 +533,17 @@ except Exception:
         [ -z "$user" ] && user="admin"
         ensure_ssh_alias "$alias" "$NEW_IP" "$user"
     else
-        cd "$REPO_DIR" && uv run python3 -c "
+        cd "$REPO_DIR" && uv run python -c "
 import sys, os, re
 config_path = os.path.expanduser('$SSH_CONFIG_PATH')
 alias = '$alias'
 new_ip = '$NEW_IP'
 if os.path.exists(config_path):
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
     pattern = r'(Host\s+' + re.escape(alias) + r'\s+[\s\S]*?HostName\s+)(\S+)'
     new_content = re.sub(pattern, r'\g<1>' + new_ip, content, count=1)
-    with open(config_path, 'w') as f:
+    with open(config_path, 'w', encoding='utf-8') as f:
         f.write(new_content)
 " 2>/dev/null || true
     fi

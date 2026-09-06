@@ -12,8 +12,12 @@ function ensure_ssh_alias() {
     local identity_file="${5:-}"
     local ssh_config="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
 
-    python3 -c "
-import sys, os, re, fcntl
+    uv run python -c "
+import sys, os, re
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 config_path = os.path.expanduser(sys.argv[6])
 alias = sys.argv[1]
@@ -30,17 +34,18 @@ os.makedirs(os.path.dirname(os.path.abspath(config_path)), exist_ok=True)
 lock_path = config_path + '.lock'
 
 with open(lock_path, 'w') as lock_f:
-    fcntl.flock(lock_f, fcntl.LOCK_EX)
+    if fcntl:
+        fcntl.flock(lock_f, fcntl.LOCK_EX)
     try:
         if not os.path.exists(config_path):
-            with open(config_path, 'w') as f:
+            with open(config_path, 'w', encoding='utf-8') as f:
                 pass
             try:
                 os.chmod(config_path, 0o600)
             except Exception:
                 pass
 
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
 
         def get_host_blocks(full_content):
@@ -129,10 +134,11 @@ with open(lock_path, 'w') as lock_f:
 
             new_content = content[:target_block['start']] + block_text + content[target_block['end']:]
 
-        with open(config_path, 'w') as f:
+        with open(config_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
     finally:
-        fcntl.flock(lock_f, fcntl.LOCK_UN)
+        if fcntl:
+            fcntl.flock(lock_f, fcntl.LOCK_UN)
 " "$alias" "$ip" "$user" "$port" "$identity_file" "$ssh_config"
 }
 
@@ -260,7 +266,7 @@ function detect_remote_ipv6() {
 
 function resolve_domain_ip_doh() {
     local domain="$1"
-    python3 -c "
+    uv run python -c "
 import sys, json, socket, urllib.request
 
 domain = sys.argv[1]
@@ -300,8 +306,12 @@ function upgrade_ssh_config_hostname() {
     fi
 
     ssh-keygen -R "$domain" >/dev/null 2>&1 || true
-    python3 -c "
-import sys, os, re, fcntl
+    uv run python -c "
+import sys, os, re
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 config_path = os.path.expanduser(sys.argv[3])
 alias = sys.argv[1]
 domain = sys.argv[2]
@@ -309,9 +319,10 @@ lock_path = config_path + '.lock'
 try:
     if os.path.exists(config_path):
         with open(lock_path, 'w') as lock_f:
-            fcntl.flock(lock_f, fcntl.LOCK_EX)
+            if fcntl:
+                fcntl.flock(lock_f, fcntl.LOCK_EX)
             try:
-                with open(config_path, 'r') as f:
+                with open(config_path, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
                 header_matches = list(re.finditer(r'^[ \t]*Host[ \t]+([^\n]+)$', content, flags=re.MULTILINE))
                 target_block = None
@@ -333,11 +344,12 @@ try:
                         else:
                             block_text = block_text + f'\n    HostName {domain}\n'
                     new_content = content[:start] + block_text + content[end:]
-                    with open(config_path, 'w') as f:
+                    with open(config_path, 'w', encoding='utf-8') as f:
                         f.write(new_content)
                     print('🌐 已成功将 ~/.ssh/config 中的 HostName 升级为伪装域名:', domain)
             finally:
-                fcntl.flock(lock_f, fcntl.LOCK_UN)
+                if fcntl:
+                    fcntl.flock(lock_f, fcntl.LOCK_UN)
 except Exception as e:
     pass
 " "$alias" "$domain" "$ssh_config" 2>/dev/null || true
@@ -380,7 +392,7 @@ function spawn_dns_convergence_worker() {
 function try_opportunistic_domain_upgrade() {
     local alias="$1"
     local domain="$2"
-    if [ -z "$alias" ] || [ -z "$domain" ]; then
+    if [ -z "$alias" ] || [ -z "$domain" ] || [ "$domain" = "PLACEHOLDER_HOST" ] || [[ "$domain" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         return 0
     fi
     
@@ -399,14 +411,14 @@ function try_opportunistic_domain_upgrade() {
 function remove_ssh_alias() {
     local pattern="$1"
     local ssh_config="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
-    python3 -c "
+    uv run python -c "
 import sys, os, re, fnmatch
 config_path = os.path.expanduser(sys.argv[1])
 pattern = sys.argv[2]
 if not os.path.exists(config_path):
     sys.exit(0)
 
-with open(config_path, 'r') as f:
+with open(config_path, 'r', encoding='utf-8', errors='ignore') as f:
     content = f.read()
 
 header_matches = list(re.finditer(r'^[ \t]*Host[ \t]+([^\n]+)$', content, flags=re.MULTILINE))
@@ -430,7 +442,7 @@ prefix_text = ''
 if header_matches:
     prefix_text = content[:header_matches[0].start()]
 
-with open(config_path, 'w') as f:
+with open(config_path, 'w', encoding='utf-8') as f:
     res_str = prefix_text + ''.join(new_blocks).strip()
     if res_str:
         f.write(res_str + '\n')

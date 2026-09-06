@@ -116,7 +116,7 @@ fi
 remove_ssh_alias "$SSH_ALIAS"
 
 # Parse output
-deleted_count=$(echo "$output" | uv run python3 -c "
+deleted_count=$(echo "$output" | uv run python -c "
 import sys, json
 try:
     for line in sys.stdin:

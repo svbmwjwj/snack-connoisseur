@@ -249,7 +249,7 @@ ${output}
     
     # Parse JSON directly in Python to extract IP
     local ip
-    ip=$(echo "$output" | uv run python3 -c "
+    ip=$(echo "$output" | uv run python -c "
 import sys, json
 try:
     for line in sys.stdin:
@@ -474,7 +474,7 @@ function provision_batch_group() {
                 echo "$py_out"
                 echo "err" > "${BATCH_TMP_DIR}/${current_alias}_aws.err"
             else
-                uv run python3 -c "
+                uv run python -c "
 import sys, json
 try:
     for line in sys.stdin:
@@ -528,7 +528,7 @@ except Exception:
 
     # 生成 AZ 统计与实例清单
     local SUMMARY_JSON
-    SUMMARY_JSON=$(uv run python3 -c "
+    SUMMARY_JSON=$(uv run python -c "
 import glob, json, os
 files = sorted(glob.glob('${BATCH_TMP_DIR}/*.json'))
 nodes = []
@@ -548,7 +548,7 @@ print(json.dumps({'nodes': nodes, 'az_counts': az_counts}))
 ")
 
     local AZ_TEXT
-    AZ_TEXT=$(uv run python3 -c "
+    AZ_TEXT=$(uv run python -c "
 import json, sys
 data = json.loads('''$SUMMARY_JSON''')
 az_counts = data.get('az_counts', {})
@@ -560,7 +560,7 @@ else:
 ")
 
     local NODES_TEXT
-    NODES_TEXT=$(uv run python3 -c "
+    NODES_TEXT=$(uv run python -c "
 import json, sys
 data = json.loads('''$SUMMARY_JSON''')
 nodes = data.get('nodes', [])
@@ -609,7 +609,7 @@ $NODES_TEXT
         
         local info_file="${BATCH_TMP_DIR}/${current_alias}.json"
         if [ -f "$info_file" ]; then
-            local current_ip=$(uv run python3 -c "import json; print(json.load(open('$info_file')).get('ip', ''))")
+            local current_ip=$(uv run python -c "import json; print(json.load(open('$info_file')).get('ip', ''))")
             local stagger_sec=$(( (i - 1) % 4 ))
             (
                 if [ "$DEBUG_MODE" != "true" ]; then

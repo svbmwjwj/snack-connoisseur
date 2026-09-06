@@ -28,8 +28,13 @@ function single_node_check() {
         return $sync_status
     fi
 
-    mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
-    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    if [[ "$OSTYPE" != "msys" && "$OSTYPE" != "cygwin" ]]; then
+        mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+        ssh_opts+=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    else
+        ssh_opts+=(-o ControlMaster=no -o ControlPath=none)
+    fi
     if [ -f "$SSH_CONFIG_PATH" ]; then
         ssh_opts+=(-F "$SSH_CONFIG_PATH")
     fi

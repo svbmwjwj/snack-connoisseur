@@ -274,12 +274,12 @@ function module_harden_system() {
         ensure_ssh_alias "$alias" "$ip" "$shadow_user" "$port"
     else
         # 独立兜底 Python 3 写入 SSH Config
-        python3 -c "
+        uv run python -c "
 import sys, os, re
 config_path = os.path.expanduser('$SSH_CONFIG_PATH')
 alias, ip, user, port = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 if os.path.exists(config_path):
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
     block_pattern = r'(Host\s+' + re.escape(alias) + r'\b(.*?))(?=\nHost\s|\Z)'
     match = re.search(block_pattern, content, flags=re.DOTALL)
@@ -294,7 +294,7 @@ if os.path.exists(config_path):
         else:
             block = re.sub(r'^[ \t]*Port\s+\d+\n?', '', block, flags=re.MULTILINE)
         new_content = content[:match.start()] + block + content[match.end():]
-        with open(config_path, 'w') as f:
+        with open(config_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
 " "$alias" "$ip" "$shadow_user" "$port" 2>/dev/null || true
     fi

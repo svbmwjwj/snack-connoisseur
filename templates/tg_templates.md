@@ -105,7 +105,7 @@ ${TEST_PREFIX}🚨 *SNI 域名阻断告警*
 ${TEST_PREFIX}${title}
 
 - *节点别名*: `${alias}`
-- *伪装域名*: `${host}`
+- *节点域名*: `${host}`
 - *目标 SNI*: `${sni}`
 
 - *Quantumult X 配置*:
@@ -143,7 +143,7 @@ ${TEST_PREFIX}🩺 *X-ray 节点深度体检报告*
 🌐 *网络与 DNS 解析*
 - *IPv4 地址*: `${ipv4}`
 - *IPv6 地址*: `${ipv6}`
-- *伪装域名*: `${host}`
+- *节点域名*: `${host}`
 - *解析状态*: ${domain_status}
 
 📡 *出站网络延迟*

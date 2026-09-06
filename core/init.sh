@@ -12,6 +12,11 @@ if [ -f "$LIB_DIR/security.sh" ]; then source "$LIB_DIR/security.sh"; fi
 if [ -f "$CORE_DIR/rotate.sh" ]; then source "$CORE_DIR/rotate.sh"; fi
 if [ -f "$CORE_DIR/update.sh" ]; then source "$CORE_DIR/update.sh"; fi
 
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    function ssh() { command ssh -o ControlMaster=no -o ControlPath=none "$@"; }
+    function scp() { command scp -o ControlMaster=no -o ControlPath=none "$@"; }
+fi
+
 function module_init() {
     local SECURE_MODE="${HARDEN_MODE:-false}"
     local DEBUG_MODE="${DEBUG_MODE:-false}"
@@ -351,7 +356,7 @@ CFG
             export PY_IP="$TARGET_IP"
             export PY_USER="$DETECTED_USER"
             export PY_IDENTITY_LINE="$CONFIG_IDENTITY_VAL"
-            uv run python3 -c "
+            uv run python -c "
 import os, re
 config_path = os.getenv('PY_CONFIG_PATH', '')
 alias = os.getenv('PY_ALIAS', '')
@@ -359,7 +364,7 @@ ip = os.getenv('PY_IP', '')
 user = os.getenv('PY_USER', '')
 identity_line = os.getenv('PY_IDENTITY_LINE', '')
 try:
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
     
     # 提取别名对应的块
@@ -383,7 +388,7 @@ try:
                     block = block.rstrip() + '\n    IdentitiesOnly yes\n'
         
         new_content = content[:match.start()] + block + content[match.end():]
-        with open(config_path, 'w') as f:
+        with open(config_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
 except Exception as e:
     pass
@@ -409,7 +414,7 @@ except Exception as e:
     local IPV6=$(ssh -o BatchMode=yes "$SSH_ALIAS" "curl -6 -s --connect-timeout 5 ifconfig.me || echo 'none'" || true)
     local IPV6_CIDR="none"
     if [ "$IPV6" != "none" ] && [ -n "$IPV6" ]; then
-        IPV6_CIDR=$(uv run python3 -c "import sys, ipaddress; print(str(ipaddress.IPv6Network(f'{sys.argv[1]}/112', strict=False)))" "$IPV6" 2>/dev/null)
+        IPV6_CIDR=$(uv run python -c "import sys, ipaddress; print(str(ipaddress.IPv6Network(f'{sys.argv[1]}/112', strict=False)))" "$IPV6" 2>/dev/null)
         if [ -z "$IPV6_CIDR" ]; then
             local V6_PREFIX=$(echo "$IPV6" | awk -F':' '{print $1":"$2":"$3":"$4}')
             IPV6_CIDR="${V6_PREFIX}::/64"

@@ -17,6 +17,13 @@ elif [ -f ".env.example" ]; then
 fi
 export CNSR_LANG="${CNSR_LANG:-zh}"
 
+# Windows OpenSSH compatibility for Git Bash (ensures named pipe agent & keys work)
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]] && [ -d "/c/Windows/System32/OpenSSH" ]; then
+    export PATH="/c/Windows/System32/OpenSSH:$PATH"
+fi
+
+
+
 # 导入 UI 库
 source lib/ui.sh
 

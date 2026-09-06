@@ -26,7 +26,7 @@ function get_file_sha256() {
     elif command -v shasum >/dev/null 2>&1; then
         shasum -a 256 "$file" 2>/dev/null | awk '{print $1}'
     else
-        uv run python3 -c "import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest())" "$file" 2>/dev/null || echo ""
+        uv run python -c "import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest())" "$file" 2>/dev/null || echo ""
     fi
 }
 
@@ -50,10 +50,19 @@ function sync_node_scripts() {
         echo "🔄 正在准备为节点 [$alias] 同步最新组件与脱敏凭据..."
     fi
 
-    mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
-    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    local scp_opts=(-q -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    if [[ "$OSTYPE" != "msys" && "$OSTYPE" != "cygwin" ]]; then
+        mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+        ssh_opts+=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+        scp_opts+=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    else
+        ssh_opts+=(-o ControlMaster=no -o ControlPath=none)
+        scp_opts+=(-o ControlMaster=no -o ControlPath=none)
+    fi
     if [ -f "$SSH_CONFIG_PATH" ]; then
         ssh_opts+=(-F "$SSH_CONFIG_PATH")
+        scp_opts+=(-F "$SSH_CONFIG_PATH")
     fi
 
     # 1. 单次探测/解析远端用户信息、目录、公网 IPv4/IPv6、伪装域名与资产哈希指纹表 (远端唯一事实源)
@@ -100,7 +109,7 @@ function sync_node_scripts() {
     fi
     local IPV6_CIDR="none"
     if [ "$IPV6" != "none" ] && [ -n "$IPV6" ]; then
-        IPV6_CIDR=$(cd "$REPO_DIR" && uv run python3 -c "import sys, ipaddress; print(str(ipaddress.IPv6Network(f'{sys.argv[1]}/112', strict=False)))" "$IPV6" 2>/dev/null || echo "none")
+        IPV6_CIDR=$(cd "$REPO_DIR" && uv run python -c "import sys, ipaddress; print(str(ipaddress.IPv6Network(f'{sys.argv[1]}/112', strict=False)))" "$IPV6" 2>/dev/null || echo "none")
         if [ -z "$IPV6_CIDR" ] || [ "$IPV6_CIDR" = "none" ]; then
             local V6_PREFIX=$(echo "$IPV6" | awk -F':' '{print $1":"$2":"$3":"$4}')
             [ -n "$V6_PREFIX" ] && IPV6_CIDR="${V6_PREFIX}::/64"
@@ -215,11 +224,6 @@ function sync_node_scripts() {
 
     # 6. 按需执行增量传输与权限/Cron 配置
     if [ ${#files_to_sync[@]} -gt 0 ]; then
-        local scp_opts=(-q -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
-        if [ -f "$SSH_CONFIG_PATH" ]; then
-            scp_opts+=(-F "$SSH_CONFIG_PATH")
-        fi
-
         scp "${scp_opts[@]}" "${files_to_sync[@]}" "$alias":${DOCKER_APP_DIR}/
 
         ssh "${ssh_opts[@]}" "$alias" "

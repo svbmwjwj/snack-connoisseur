@@ -18,7 +18,7 @@ fi
 function push_tg_msg() {
     local text="$1"
 
-    uv run python3 -c "
+    uv run python -c "
 import os, sys, json, urllib.request, urllib.parse
 
 text = sys.argv[1]
@@ -68,7 +68,7 @@ function push_links_to_tg() {
     local qx_file="$2"
     local count="$3"
 
-    uv run python3 -c "
+    uv run python -c "
 import os, sys, json, urllib.request, urllib.parse
 
 vless_file = sys.argv[1]
@@ -202,6 +202,19 @@ function module_print() {
     local count=${#target_aliases[@]}
     local BATCH_TMP_DIR=$(mktemp -d)
 
+    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5)
+    if [[ "$OSTYPE" != "msys" && "$OSTYPE" != "cygwin" ]]; then
+        mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+        ssh_opts+=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    else
+        ssh_opts+=(-o ControlMaster=no -o ControlPath=none)
+    fi
+    if [ -f "$SSH_CONFIG_PATH" ]; then
+        ssh_opts+=(-F "$SSH_CONFIG_PATH")
+    elif [ -f "$HOME/.ssh/config" ]; then
+        ssh_opts+=(-F "$HOME/.ssh/config")
+    fi
+
     # ----------------------------------------------------
     # 模式 A: --ip 纯 IP 打印 (包含 IPv4 与 IPv6)
     # ----------------------------------------------------
@@ -216,7 +229,7 @@ function module_print() {
 
                 # 远端并发探测真实公网 IPv4 与 IPv6
                 local ip_out
-                ip_out=$(ssh -o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=no "$cur_alias" '
+                ip_out=$(ssh "${ssh_opts[@]}" "$cur_alias" '
                     v4=$(hostname -I 2>/dev/null | tr " " "\n" | grep "\." | grep -v "^127\." | grep -v "^172\." | grep -v "^10\." | head -n1)
                     [ -z "$v4" ] && v4=$(curl -4 -s -m 2 ifconfig.me 2>/dev/null || true)
                     v6=$(hostname -I 2>/dev/null | tr " " "\n" | grep ":" | grep -v "^fe80" | grep -v "^fc" | grep -v "^fd" | head -n1)
@@ -265,14 +278,6 @@ function module_print() {
 
         rm -rf "$BATCH_TMP_DIR"
         return 0
-    fi
-
-    mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
-    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 -o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
-    if [ -f "$SSH_CONFIG_PATH" ]; then
-        ssh_opts+=(-F "$SSH_CONFIG_PATH")
-    elif [ -f "$HOME/.ssh/config" ]; then
-        ssh_opts+=(-F "$HOME/.ssh/config")
     fi
 
     # ----------------------------------------------------
