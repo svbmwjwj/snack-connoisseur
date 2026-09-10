@@ -202,7 +202,7 @@ function module_print() {
     local count=${#target_aliases[@]}
     local BATCH_TMP_DIR=$(mktemp -d)
 
-    local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5)
+    local ssh_opts=(-n -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5)
     if [[ "$OSTYPE" != "msys" && "$OSTYPE" != "cygwin" ]]; then
         mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
         ssh_opts+=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
@@ -215,10 +215,20 @@ function module_print() {
         ssh_opts+=(-F "$HOME/.ssh/config")
     fi
 
+    local timeout_cmd=""
+    if command -v timeout >/dev/null 2>&1; then
+        timeout_cmd="timeout 15"
+    fi
+
     # ----------------------------------------------------
     # 模式 A: --ip 纯 IP 打印 (包含 IPv4 与 IPv6)
     # ----------------------------------------------------
     if [ "$SHOW_IP" = true ]; then
+        if [ "$CNSR_LANG" = "en" ]; then
+            echo "[INFO] Querying IP addresses across $count node(s) in parallel..."
+        else
+            echo "[INFO] 正在并发探测 $count 台节点的公网 IP 信息..."
+        fi
         for cur_alias in "${target_aliases[@]}"; do
             (
                 # 本地从 ssh config 获取默认 HostName 作为备用
@@ -229,7 +239,7 @@ function module_print() {
 
                 # 远端并发探测真实公网 IPv4 与 IPv6
                 local ip_out
-                ip_out=$(ssh "${ssh_opts[@]}" "$cur_alias" '
+                ip_out=$($timeout_cmd ssh "${ssh_opts[@]}" "$cur_alias" '
                     v4=$(hostname -I 2>/dev/null | tr " " "\n" | grep "\." | grep -v "^127\." | grep -v "^172\." | grep -v "^10\." | head -n1)
                     [ -z "$v4" ] && v4=$(curl -4 -s -m 2 ifconfig.me 2>/dev/null || true)
                     v6=$(hostname -I 2>/dev/null | tr " " "\n" | grep ":" | grep -v "^fe80" | grep -v "^fc" | grep -v "^fd" | head -n1)
@@ -283,10 +293,16 @@ function module_print() {
     # ----------------------------------------------------
     # 模式 B: 默认订阅配置打印 (VLESS / QX) - 实时动态组装
     # ----------------------------------------------------
+    if [ "$CNSR_LANG" = "en" ]; then
+        echo "[INFO] Fetching node configurations from $count node(s) in parallel..."
+    else
+        echo "[INFO] 正在并发提取 $count 台节点的配置信息..."
+    fi
+
     for cur_alias in "${target_aliases[@]}"; do
         (
             local remote_info
-            remote_info=$(ssh "${ssh_opts[@]}" "$cur_alias" '
+            remote_info=$($timeout_cmd ssh "${ssh_opts[@]}" "$cur_alias" '
                 remote_home=$(eval echo ~$USER)
                 docker_dir="${remote_home}/docker-apps/xray"
                 server_host=$(grep "^SERVER_HOST=" ${docker_dir}/reality_rotate.sh 2>/dev/null | cut -d"\"" -f2 || true)

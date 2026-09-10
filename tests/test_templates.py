@@ -67,7 +67,7 @@ exit 1
             os.chmod(mock_curl, 0o755)
 
             env = os.environ.copy()
-            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
             env["GATEWAY_URL"] = "https://mock-gateway.example.com"
             env["GATEWAY_AUTH_KEY"] = "secret123"
 
@@ -190,11 +190,46 @@ exit 0
 ''')
             os.chmod(mock_curl, 0o755)
 
+            mock_jq = os.path.join(bin_dir, "jq")
+            with open(mock_jq, "w") as f:
+                f.write(r'''#!/bin/bash
+uv run python -c "
+import sys, json
+args = sys.argv[1:]
+data = {}
+i = 0
+while i < len(args):
+    if args[i] == '--arg' and i + 2 < len(args):
+        data[args[i+1]] = args[i+2]
+        i += 3
+    else:
+        i += 1
+expr = args[-1] if args else ''
+if 'text' in data:
+    print(json.dumps({'text': data['text'], 'parse_mode': 'Markdown'}))
+elif 'ip' in data:
+    payload = {
+        'target_ip': data.get('ip', ''),
+        'target_cidr_v4': data.get('v4', ''),
+        'target_cidr_v6': data.get('v6', ''),
+        'timestamp': data.get('ts', ''),
+        'alias': data.get('alias', '')
+    }
+    if 'client_payload' in expr:
+        print(json.dumps({'event_type': 'scan_trigger', 'client_payload': payload}))
+    else:
+        print(json.dumps(payload))
+else:
+    print(json.dumps(data))
+" "$@"
+''')
+            os.chmod(mock_jq, 0o755)
+
             log_file = os.path.join(temp_dir, "curl.log")
 
             # 1. Test Gateway TG
             env = os.environ.copy()
-            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
             env["LOG_FILE"] = log_file
             env["GATEWAY_URL"] = "https://gw.example.com"
             env["GATEWAY_AUTH_KEY"] = "gw_key"
@@ -208,7 +243,7 @@ exit 0
 
             # 2. Test Direct TG
             env = os.environ.copy()
-            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
             env["LOG_FILE"] = log_file
             env["TG_BOT_TOKEN"] = "mock_bot_token"
             env["TG_CHAT_ID"] = "mock_chat_id"
@@ -222,7 +257,7 @@ exit 0
 
             # 3. Test Gateway GH Dispatch
             env = os.environ.copy()
-            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
             env["LOG_FILE"] = log_file
             env["GATEWAY_URL"] = "https://gw.example.com"
             env["GATEWAY_AUTH_KEY"] = "gw_key"
@@ -237,7 +272,7 @@ exit 0
 
             # 4. Test Direct GH Dispatch
             env = os.environ.copy()
-            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
             env["LOG_FILE"] = log_file
             env["GH_TOKEN"] = "mock_gh_token"
             if os.path.exists(log_file): os.remove(log_file)

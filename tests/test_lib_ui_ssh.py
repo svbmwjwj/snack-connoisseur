@@ -451,8 +451,11 @@ Host sg-node-1
     Port 2222
 """)
 
+        sub_config_posix = sub_config.replace("\\", "/")
+        if len(sub_config_posix) >= 3 and sub_config_posix[1:3] == ":/":
+            sub_config_posix = "/" + sub_config_posix[0].lower() + sub_config_posix[2:]
         with open(self.test_ssh_config, "w") as f:
-            f.write(f"""Include {sub_config}
+            f.write(f"""Include "{sub_config_posix}"
 
 Host local-node
     HostName 127.0.0.1

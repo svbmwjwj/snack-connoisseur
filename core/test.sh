@@ -34,6 +34,12 @@ function module_test_tg() {
     sync_node_scripts "$alias" >/dev/null 2>&1 || true
 
     local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    if [[ "$OSTYPE" != "msys" && "$OSTYPE" != "cygwin" ]]; then
+        mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+        ssh_opts+=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    else
+        ssh_opts+=(-o ControlMaster=no -o ControlPath=none)
+    fi
     if [ -f "$SSH_CONFIG_PATH" ]; then
         ssh_opts+=(-F "$SSH_CONFIG_PATH")
     fi
@@ -80,6 +86,12 @@ function module_test_sni() {
     sync_node_scripts "$alias" >/dev/null 2>&1 || true
 
     local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    if [[ "$OSTYPE" != "msys" && "$OSTYPE" != "cygwin" ]]; then
+        mkdir -p "$HOME/.ssh/sockets" 2>/dev/null || true
+        ssh_opts+=(-o ControlMaster=auto -o ControlPath="$HOME/.ssh/sockets/%C" -o ControlPersist=5m)
+    else
+        ssh_opts+=(-o ControlMaster=no -o ControlPath=none)
+    fi
     if [ -f "$SSH_CONFIG_PATH" ]; then
         ssh_opts+=(-F "$SSH_CONFIG_PATH")
     fi

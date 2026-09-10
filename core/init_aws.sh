@@ -8,6 +8,9 @@ LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
 if [ -f "$LIB_DIR/ui.sh" ]; then source "$LIB_DIR/ui.sh"; fi
 if [ -f "$LIB_DIR/ssh.sh" ]; then source "$LIB_DIR/ssh.sh"; fi
 
+export PYTHONUTF8=1
+export PYTHONIOENCODING="utf-8"
+
 CONFIG_INPUT=""
 CLI_ALIAS=""
 CLI_REGION=""
@@ -112,31 +115,50 @@ done
 
 function send_batch_tg_notify() {
     local text="$1"
-    local gateway_url="${GATEWAY_URL:-}"
-    local gateway_auth="${GATEWAY_AUTH_KEY:-}"
-    local bot_token="${TG_BOT_TOKEN:-}"
-    local chat_id="${TG_CHAT_ID:-}"
 
-    if [ -n "$gateway_url" ]; then
-        local auth_header=()
-        if [ -n "$gateway_auth" ]; then
-            auth_header=(-H "Authorization: Bearer $gateway_auth")
-        fi
-        local payload
-        payload=$(python3 -c "import sys, json; print(json.dumps({'text': sys.argv[1], 'parse_mode': 'Markdown'}))" "$text" 2>/dev/null || true)
-        curl -s -X POST "${auth_header[@]}" \
-            -H "Content-Type: application/json" \
-            "$gateway_url/api/tg" \
-            -d "$payload" >/dev/null 2>&1 || true
-        return 0
-    fi
+    uv run python -c "
+import os, sys, json, urllib.request, urllib.parse
 
-    if [ -n "$bot_token" ] && [ -n "$chat_id" ]; then
-        curl -s -X POST "https://api.telegram.org/bot${bot_token}/sendMessage" \
-            -d chat_id="${chat_id}" \
-            -d parse_mode="Markdown" \
-            -d text="${text}" >/dev/null 2>&1 || true
-    fi
+text = sys.argv[1]
+gateway_url = os.environ.get('GATEWAY_URL', '')
+gateway_auth = os.environ.get('GATEWAY_AUTH_KEY', '')
+bot_token = os.environ.get('TG_BOT_TOKEN', '')
+chat_id = os.environ.get('TG_CHAT_ID', '')
+
+sent = False
+if gateway_url:
+    headers = {'Content-Type': 'application/json', 'User-Agent': 'curl/8.7.1'}
+    if gateway_auth:
+        headers['Authorization'] = f'Bearer {gateway_auth}'
+    req = urllib.request.Request(
+        f'{gateway_url}/api/tg',
+        data=json.dumps({'text': text, 'parse_mode': 'Markdown'}).encode('utf-8'),
+        headers=headers
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status in (200, 201, 204):
+                sent = True
+    except Exception:
+        pass
+
+if not sent and bot_token and chat_id:
+    data = urllib.parse.urlencode({
+        'chat_id': chat_id,
+        'parse_mode': 'Markdown',
+        'text': text
+    }).encode('utf-8')
+    req = urllib.request.Request(
+        f'https://api.telegram.org/bot{bot_token}/sendMessage',
+        data=data,
+        headers={'User-Agent': 'curl/8.7.1'}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            sent = True
+    except Exception:
+        pass
+" "$text" 2>/dev/null || true
 }
 
 # 0. 脱机后台执行分支 (Detach Mode)
@@ -439,7 +461,10 @@ function provision_batch_group() {
 • *规格镜像*: \`${BUNDLE_LABEL}\` | \`${grp_blueprint}\`"
     fi
 
-    local BATCH_TMP_DIR=$(mktemp -d)
+    mkdir -p ".tmp"
+    local BATCH_TMP_DIR
+    BATCH_TMP_DIR=$(mktemp -d -p ".tmp" 2>/dev/null || mktemp -d ".tmp/batch_${BATCH_ID}_XXXXXX" 2>/dev/null || (mkdir -p ".tmp/batch_${BATCH_ID}_$$" && echo ".tmp/batch_${BATCH_ID}_$$"))
+    trap 'rm -rf "$BATCH_TMP_DIR"' EXIT INT TERM
 
     # Phase 1: 并发调用 AWS API 创建实例并收集 IP 与 Zone
     if [ "$DEBUG_MODE" = "true" ]; then
@@ -474,20 +499,22 @@ function provision_batch_group() {
                 echo "$py_out"
                 echo "err" > "${BATCH_TMP_DIR}/${current_alias}_aws.err"
             else
+                echo "$py_out"
                 uv run python -c "
 import sys, json
+target_file = sys.argv[1]
 try:
     for line in sys.stdin:
         line = line.strip()
         if line.startswith('{'):
             data = json.loads(line)
             if 'ip' in data and data['ip']:
-                with open('${BATCH_TMP_DIR}/${current_alias}.json', 'w') as f:
+                with open(target_file, 'w', encoding='utf-8') as f:
                     json.dump(data, f)
                 break
-except Exception:
-    pass
-" <<< "$py_out"
+except Exception as e:
+    print(f'JSON write error: {e}', file=sys.stderr)
+" "${BATCH_TMP_DIR}/${current_alias}.json" <<< "$py_out"
                 if [ ! -f "${BATCH_TMP_DIR}/${current_alias}.json" ]; then
                     echo "err" > "${BATCH_TMP_DIR}/${current_alias}_aws.err"
                 fi
@@ -529,13 +556,14 @@ except Exception:
     # 生成 AZ 统计与实例清单
     local SUMMARY_JSON
     SUMMARY_JSON=$(uv run python -c "
-import glob, json, os
-files = sorted(glob.glob('${BATCH_TMP_DIR}/*.json'))
+import glob, json, sys
+tmp_dir = sys.argv[1]
+files = sorted(glob.glob(f'{tmp_dir}/*.json'))
 nodes = []
 az_counts = {}
 for f in files:
     try:
-        with open(f) as fp:
+        with open(f, encoding='utf-8') as fp:
             d = json.load(fp)
             nodes.append(d)
             z = d.get('zone', '')
@@ -545,32 +573,32 @@ for f in files:
         pass
 
 print(json.dumps({'nodes': nodes, 'az_counts': az_counts}))
-")
+" "$BATCH_TMP_DIR")
 
     local AZ_TEXT
     AZ_TEXT=$(uv run python -c "
 import json, sys
-data = json.loads('''$SUMMARY_JSON''')
+data = json.loads(sys.argv[1])
 az_counts = data.get('az_counts', {})
 if az_counts:
     for z, c in sorted(az_counts.items()):
         print(f'  - \`{z}\`: {c} 台')
 else:
     print('  - 默认可用区')
-")
+" "$SUMMARY_JSON")
 
     local NODES_TEXT
     NODES_TEXT=$(uv run python -c "
 import json, sys
-data = json.loads('''$SUMMARY_JSON''')
+data = json.loads(sys.argv[1])
 nodes = data.get('nodes', [])
 for n in nodes:
     name = n.get('name', '')
     ip = n.get('ip', '')
     z = n.get('zone', '')
     z_suffix = f' (\`{z.split(\"-\")[-1]}\`)' if z else ''
-    print(f'• \`{name}\`: \`{ip}\`{z_suffix}')
-")
+    print(f'- \`{name}\`: \`{ip}\`{z_suffix}')
+" "$SUMMARY_JSON")
 
     # Stage 2: 统一汇总就绪看板
     send_batch_tg_notify "☁️ *AWS 批量实例就绪看板* ($created_count/$grp_count)
@@ -590,7 +618,7 @@ $NODES_TEXT
         cf_resp=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID" \
             -H "Authorization: Bearer $CF_API_TOKEN" \
             -H "Content-Type: application/json" 2>/dev/null || true)
-        CF_BASE_DOMAIN=$(python3 -c "import sys, json; print(json.loads(sys.argv[1]).get('result', {}).get('name', ''))" "$cf_resp" 2>/dev/null || true)
+        CF_BASE_DOMAIN=$(uv run python -c "import sys, json; print(json.loads(sys.argv[1]).get('result', {}).get('name', ''))" "$cf_resp" 2>/dev/null || true)
         if [ -n "$CF_BASE_DOMAIN" ]; then
             export CF_BASE_DOMAIN
         fi
@@ -609,7 +637,7 @@ $NODES_TEXT
         
         local info_file="${BATCH_TMP_DIR}/${current_alias}.json"
         if [ -f "$info_file" ]; then
-            local current_ip=$(uv run python -c "import json; print(json.load(open('$info_file')).get('ip', ''))")
+            local current_ip=$(uv run python -c "import sys, json; print(json.load(open(sys.argv[1], encoding='utf-8')).get('ip', ''))" "$info_file" 2>/dev/null || true)
             local stagger_sec=$(( (i - 1) % 4 ))
             (
                 if [ "$DEBUG_MODE" != "true" ]; then

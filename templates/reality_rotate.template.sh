@@ -175,6 +175,17 @@ function is_domain_poisoned_in_china() {
     return 1  # 境内解析正常
 }
 
+function is_ocsp_stapled() {
+    local domain="$1"
+    [ -z "$domain" ] && return 1
+    local check_res
+    check_res=$(echo | timeout 4 openssl s_client -connect "${domain}:443" -servername "${domain}" -status 2>/dev/null | grep -E "OCSP Response Status.*successful|OCSP Response Data" || true)
+    if [ -n "$check_res" ]; then
+        return 0
+    fi
+    return 1
+}
+
 function check_sni_health() {
     if [ "$MOCK_SNI_PROBE_FAIL" = "1" ]; then
         echo "    [MOCK] 强行挂钩，让 check_sni_health 返回失败"
@@ -358,21 +369,43 @@ else
     download_github_csv "$SSH_ALIAS" "" "$CSV_FILE" || true
 fi
 
-# 精选高可用 REALITY 备用白名单域名池 (仅在云端扫描超时或无可用域名时作为应急兜底)
-FALLBACK_SNI_POOL=(
-    "gateway.icloud.com"
-    "swdist.apple.com"
-    "updates.cdn-apple.com"
-    "itunes.apple.com"
-    "www.microsoft.com"
-    "addons.mozilla.org"
-)
+# 精选高可用 REALITY 备用白名单域名池 (按区域精选权威大厂与本地基础设施)
+FALLBACK_SNI_POOL=()
+if echo "$SSH_ALIAS" | grep -qiE 'jp|tokyo|osaka'; then
+    FALLBACK_SNI_POOL=(
+        "id.keyence.com"
+        "www.sony.com"
+        "nightreign.eldenring.jp"
+        "gateway.icloud.com"
+        "www.microsoft.com"
+    )
+elif echo "$SSH_ALIAS" | grep -qiE 'sg|singapore'; then
+    FALLBACK_SNI_POOL=(
+        "anchanto.com"
+        "www.nus.edu.sg"
+        "gateway.icloud.com"
+        "www.microsoft.com"
+    )
+else
+    FALLBACK_SNI_POOL=(
+        "gateway.icloud.com"
+        "swdist.apple.com"
+        "updates.cdn-apple.com"
+        "itunes.apple.com"
+        "www.microsoft.com"
+        "addons.mozilla.org"
+    )
+fi
 
 NEW_SNI=""
 
 if [ -s "$CSV_FILE" ]; then
     echo "🔍 [3/5] 使用 RealityChecker 深度检测新候选域名..."
-    CANDIDATE_DOMAINS=$(awk -F',' 'NR>1 {print $9}' "$CSV_FILE" | sed 's/"//g' | sed 's/\*\.//g' | grep -v 'Fake' | grep '\.' | grep -v "${CURRENT_SNI}" | sort -u | tr '\n' ' ')
+    # 过滤低信誉顶级域与临时测试前缀，只保留正规商业与机构域名
+    CANDIDATE_DOMAINS=$(awk -F',' 'NR>1 {print $9}' "$CSV_FILE" | sed 's/"//g' | sed 's/\*\.//g' | grep -v 'Fake' | grep '\.' | grep -v "${CURRENT_SNI}" | \
+        grep -vE '\.(info|click|top|xyz|club|work|site|vip|live|loan|cc|online|icu|buzz|shop|rest)$' | \
+        grep -vE '^(stg\.|dev\.|test\.|poc\.|demo\.|beta\.|internal\.|admin\.|temp\.)' | \
+        sort -u | tr '\n' ' ')
 
     if [ -n "$CANDIDATE_DOMAINS" ]; then
         CHECKER_LOG=$(mktemp)
@@ -391,7 +424,7 @@ if [ -s "$CSV_FILE" ]; then
 
         cat "$CHECKER_LOG"
 
-        # 3.3 严密解析表格，严格考量全部 7 项指标，并经国内公共 DoH 投毒初筛
+        # 3.3 严密解析表格，严格考量全部 7 项指标，清洗低信誉后缀并经国内公共 DoH 与 OCSP 预筛
         CANDIDATES_RAW=$(sed -E 's/\x1B\[[0-9;]*[a-zA-Z]//g' "$CHECKER_LOG" | awk -F'|' '
           /\|/ && $2 !~ /最终域名/ && $2 !~ /^\s*\+-/ {
             domain = $2; gsub(/^[ \t]+|[ \t]+$/, "", domain);
@@ -404,20 +437,36 @@ if [ -s "$CSV_FILE" ]; then
               print domain;
             }
           }
-        ' | grep -v "${CURRENT_SNI}" || true)
+        ' | grep -v "${CURRENT_SNI}" | \
+            grep -vE '\.(info|click|top|xyz|club|work|site|vip|live|loan|cc|online|icu|buzz|shop|rest)$' | \
+            grep -vE '^(stg\.|dev\.|test\.|poc\.|demo\.|beta\.|internal\.|admin\.|temp\.)' || true)
 
         if [ -n "$CANDIDATES_RAW" ]; then
-            echo "🇨🇳 正在对候选高星域名进行境内 GFW 污染预筛..."
+            echo "🇨🇳 正在对候选高星域名进行境内 GFW 污染与 OCSP 装订预筛..."
+            stapled_candidates=()
+            unstapled_candidates=()
             while IFS= read -r cand; do
                 [ -z "$cand" ] && continue
                 if is_domain_poisoned_in_china "$cand"; then
                     echo "  ❌ 剔除: [$cand] 境内已遭 DNS 投毒或解析异常！"
                 else
-                    echo "  ✅ 通过: [$cand] 境内解析干净，选定！"
-                    NEW_SNI="$cand"
-                    break
+                    if is_ocsp_stapled "$cand"; then
+                        echo "  💎 优先: [$cand] 境内解析干净且已装订 OCSP Stapling！"
+                        stapled_candidates+=("$cand")
+                    else
+                        echo "  ✅ 合格: [$cand] 境内解析干净（无 OCSP 装订备用）"
+                        unstapled_candidates+=("$cand")
+                    fi
                 fi
             done <<< "$CANDIDATES_RAW"
+
+            if [ ${#stapled_candidates[@]} -gt 0 ]; then
+                NEW_SNI="${stapled_candidates[0]}"
+                echo "🏆 优先选定装订 OCSP Stapling 的高可靠域名: $NEW_SNI"
+            elif [ ${#unstapled_candidates[@]} -gt 0 ]; then
+                NEW_SNI="${unstapled_candidates[0]}"
+                echo "🎯 选定高星合规候选域名: $NEW_SNI"
+            fi
         fi
         rm -f "$CHECKER_LOG"
     fi

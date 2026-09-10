@@ -29,3 +29,4 @@ fallback_snis.txt
 logs/
 .DS_Store
 scratch/
+.tmp/

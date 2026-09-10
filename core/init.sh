@@ -585,8 +585,9 @@ EOF'
     fi
     
     echo "🚀 正在部署异步守护进程，接管后续的配置与测试..."
+    mkdir -p ".tmp"
     local tmp_async
-    tmp_async=$(mktemp -t "cnsr_async_${SSH_ALIAS}_XXXXXX.sh")
+    tmp_async=$(mktemp -p ".tmp" "cnsr_async_${SSH_ALIAS}_XXXXXX.sh" 2>/dev/null || echo ".tmp/cnsr_async_${SSH_ALIAS}_$$.sh")
     cp templates/async_deploy.template.sh "$tmp_async"
     sed -i '' -e "s|PLACEHOLDER_IP|$IPV4|g" -e "s|PLACEHOLDER_ALIAS|$SSH_ALIAS|g" -e "s|/home/admin/docker-apps/xray|${DOCKER_APP_DIR}|g" "$tmp_async" 2>/dev/null || \
     sed -i -e "s|PLACEHOLDER_IP|$IPV4|g" -e "s|PLACEHOLDER_ALIAS|$SSH_ALIAS|g" -e "s|/home/admin/docker-apps/xray|${DOCKER_APP_DIR}|g" "$tmp_async"

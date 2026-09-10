@@ -276,8 +276,8 @@ function module_harden_system() {
         # 独立兜底 Python 3 写入 SSH Config
         uv run python -c "
 import sys, os, re
-config_path = os.path.expanduser('$SSH_CONFIG_PATH')
 alias, ip, user, port = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+config_path = os.path.expanduser(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] else os.path.expanduser('~/.ssh/config')
 if os.path.exists(config_path):
     with open(config_path, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
@@ -296,21 +296,36 @@ if os.path.exists(config_path):
         new_content = content[:match.start()] + block + content[match.end():]
         with open(config_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
-" "$alias" "$ip" "$shadow_user" "$port" 2>/dev/null || true
+" "$alias" "$ip" "$shadow_user" "$port" "${SSH_CONFIG_PATH:-$HOME/.ssh/config}" 2>/dev/null || true
     fi
 
-    # 3. AWS Lightsail 云防火墙放行 (若处于 AWS 环境且安装有 AWS CLI)
-    if command -v aws >/dev/null 2>&1; then
-        echo "   -> [加固] 尝试通过 AWS CLI 为 Lightsail 实例放行云端防火墙端口 $port..."
-        local aws_region_probe
-        aws_region_probe=$(ssh "${ssh_opts[@]}" "$alias" "curl -s -m 2 http://169.254.169.254/latest/meta-data/placement/region" 2>/dev/null || true)
-        if [ -n "$aws_region_probe" ]; then
+    # 3. AWS Lightsail 云防火墙放行 (若处于 AWS 环境)
+    local repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
+    local aws_region_probe
+    aws_region_probe=$(ssh "${ssh_opts[@]}" "$alias" "curl -s -m 2 http://169.254.169.254/latest/meta-data/placement/region" 2>/dev/null || true)
+    if [ -n "$aws_region_probe" ]; then
+        echo "   -> [加固] 尝试通过 AWS API 为 Lightsail 实例放行云端防火墙端口 $port..."
+        local port_opened=false
+        if command -v aws >/dev/null 2>&1; then
             local instance_name_probe
-            instance_name_probe=$(aws lightsail get-instances --region "$aws_region_probe" 2>/dev/null | jq -r ".instances[] | select(.publicIpAddress == \"$ip\") | .name" 2>/dev/null || true)
-            if [ -n "$instance_name_probe" ]; then
-                aws lightsail open-instance-port --instance-name "$instance_name_probe" --region "$aws_region_probe" --port-info fromPort="$port",toPort="$port",protocol=TCP >/dev/null 2>&1 || true
-                echo "   ✅ 已自动调用 AWS API 在 Lightsail 云防火墙中放行 $port 端口。"
+            if command -v jq >/dev/null 2>&1; then
+                instance_name_probe=$(aws lightsail get-instances --region "$aws_region_probe" 2>/dev/null | jq -r ".instances[] | select(.publicIpAddress == \"$ip\") | .name" 2>/dev/null || true)
+            else
+                instance_name_probe=$(aws lightsail get-instances --region "$aws_region_probe" 2>/dev/null | uv run python -c "import sys, json; data=json.load(sys.stdin); print(next((i['name'] for i in data.get('instances', []) if i.get('publicIpAddress') == sys.argv[1]), ''))" "$ip" 2>/dev/null || true)
             fi
+            if [ -n "$instance_name_probe" ]; then
+                if aws lightsail open-instance-port --instance-name "$instance_name_probe" --region "$aws_region_probe" --port-info fromPort="$port",toPort="$port",protocol=TCP >/dev/null 2>&1; then
+                    port_opened=true
+                fi
+            fi
+        fi
+        if [ "$port_opened" != "true" ] && [ -f "$repo_root/providers/aws.py" ]; then
+            if (cd "$repo_root" && uv run providers/aws.py open-port --alias "$alias" --region "$aws_region_probe" --port "$port" >/dev/null 2>&1); then
+                port_opened=true
+            fi
+        fi
+        if [ "$port_opened" = "true" ]; then
+            echo "   ✅ 已自动调用 AWS API 在 Lightsail 云防火墙中放行 $port 端口。"
         fi
     fi
 

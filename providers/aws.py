@@ -217,10 +217,18 @@ def delete_instance(args=None, **kwargs):
     instances = all_inst_resp.get("instances", []) if isinstance(all_inst_resp, dict) else []
     
     matched_names = []
+    matched_ips = {}
     for inst in instances:
         name = inst.get("name", "")
         if name == pattern or fnmatch.fnmatch(name, pattern):
             matched_names.append(name)
+            ips = []
+            if inst.get("publicIpAddress"):
+                ips.append(inst.get("publicIpAddress"))
+            for v6 in inst.get("ipv6Addresses", []):
+                if v6 and v6 not in ips:
+                    ips.append(v6)
+            matched_ips[name] = ips
 
     if not matched_names:
         return {"deleted": [], "message": f"No instances found matching '{pattern}' in region {region}"}
@@ -251,6 +259,8 @@ def delete_instance(args=None, **kwargs):
         client.delete_instance(instanceName=name)
         deleted_summary.append({
             "name": name,
+            "ip": matched_ips.get(name, [""])[0] if matched_ips.get(name) else "",
+            "ips": matched_ips.get(name, []),
             "released_static_ip": released_sip
         })
 

@@ -202,11 +202,12 @@ sync_node_scripts "sg_test_node"
             bin_dir = os.path.join(temp_dir, "bin")
             os.makedirs(bin_dir)
             log_file = os.path.join(temp_dir, "dispatch.log")
+            log_file_posix = log_file.replace("\\", "/")
 
             mock_ssh = os.path.join(bin_dir, "ssh")
             with open(mock_ssh, "w") as f:
                 f.write(f"""#!/bin/bash
-echo "SSH_CALL: $@" >> "{log_file}"
+echo "SSH_CALL: $@" >> "{log_file_posix}"
 if [[ "$*" == *"hashes="* ]] || [[ "$*" == *"docker_dir="* ]]; then echo "/home/admin|198.51.100.99|2001:db8:1234::1|node-v123.example.com|"; exit 0; fi
 if [[ "$*" == *"eval echo ~"* ]]; then echo "/home/admin"; exit 0; fi
 if [[ "$*" == *"-G"* ]]; then echo "hostname 198.51.100.99"; exit 0; fi
@@ -218,13 +219,14 @@ exit 0
             mock_scp = os.path.join(bin_dir, "scp")
             with open(mock_scp, "w") as f:
                 f.write(f"""#!/bin/bash
-echo "SCP_CALL: $@" >> "{log_file}"
+echo "SCP_CALL: $@" >> "{log_file_posix}"
 exit 0
 """)
             os.chmod(mock_scp, 0o755)
 
             env = os.environ.copy()
-            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+            env["IS_TEST_MODE"] = "1"
 
             proc = subprocess.run([self.cnsr_path, "update", "sg_node_test"], cwd=self.repo_root, env=env, capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, f"cnsr.sh update failed:\nSTDOUT:{proc.stdout}\nSTDERR:{proc.stderr}")

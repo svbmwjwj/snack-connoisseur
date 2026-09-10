@@ -611,6 +611,91 @@ exit 0
         self.assertNotEqual(res2.returncode, 0)
         self.assertIn("region", res2.stdout.lower() + res2.stderr.lower())
 
+    def test_destroy_aws_with_cloudflare_cleanup(self):
+        """destroy_aws.sh should delete instances, remove ssh config, and delete matched Cloudflare records."""
+        destroy_sh = os.path.join(self.core_dir, "destroy_aws.sh")
+        bin_dir = self._setup_bin_dir()
+
+        mock_aws_output = json.dumps({
+            "deleted": [{"name": "mock-jp-1", "ip": "198.51.100.11", "released_static_ip": None}],
+            "count": 1
+        })
+        mock_aws_script = os.path.join(bin_dir, "mock_aws.sh")
+        with open(mock_aws_script, "w") as f:
+            f.write(f'#!/bin/bash\necho \'{mock_aws_output}\'\nexit 0\n')
+        os.chmod(mock_aws_script, 0o755)
+
+        mock_uv = os.path.join(bin_dir, "uv")
+        with open(mock_uv, "w") as f:
+            f.write(f"""#!/bin/bash
+if [ "$1" = "run" ] && [[ "$2" == *"providers/aws.py"* ]]; then
+    exec "{mock_aws_script}"
+fi
+if [ "$1" = "run" ]; then
+    shift
+    exec "$@"
+fi
+exec "$@"
+""")
+        os.chmod(mock_uv, 0o755)
+
+        cf_log = os.path.join(self.temp_dir, "cf_curl.log")
+        mock_curl = os.path.join(bin_dir, "curl")
+        with open(mock_curl, "w") as f:
+            f.write(f"""#!/bin/bash
+echo "$@" >> "{cf_log}"
+cmd="$*"
+if [[ "$cmd" == *"GET"* ]] && [[ "$cmd" == *"dns_records"* ]]; then
+    echo '{{"success":true,"result":[{{"id":"rec_111","type":"A","name":"sub1.example.com","content":"198.51.100.11","comment":"mock-jp-1"}},{{"id":"rec_222","type":"A","name":"sub2.example.com","content":"198.51.100.99","comment":"other-node"}}]}}'
+    exit 0
+fi
+if [[ "$cmd" == *"DELETE"* ]] && [[ "$cmd" == *"dns_records/rec_111"* ]]; then
+    echo '{{"success":true}}'
+    exit 0
+fi
+exit 0
+""")
+        os.chmod(mock_curl, 0o755)
+
+        mock_env = os.path.join(self.repo_root, ".env")
+        env_existed = os.path.exists(mock_env)
+        orig_env_content = ""
+        if env_existed:
+            with open(mock_env, "r") as f:
+                orig_env_content = f.read()
+
+        try:
+            with open(mock_env, "w") as f:
+                f.write("""AWS_ACCESS_KEY_ID=mock_id
+AWS_SECRET_ACCESS_KEY=mock_secret
+CF_API_TOKEN=mock_cf_token
+CF_ZONE_ID=mock_cf_zone
+""")
+
+            with open(self.test_ssh_config, "w") as f:
+                f.write("Host mock-jp-1\\n    HostName 198.51.100.11\\n")
+
+            cmd = f"""
+            export PATH="{bin_dir}:$PATH"
+            export TEST_SSH_CONFIG="{self.test_ssh_config}"
+            bash "{destroy_sh}" "mock-jp-1" --region "ap-northeast-1"
+            """
+            res = subprocess.run(["bash", "-c", cmd], cwd=self.repo_root, capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"STDOUT: {res.stdout}\\nSTDERR: {res.stderr}")
+            self.assertIn("1 条 Cloudflare DNS 解析记录", res.stdout)
+            with open(cf_log, "r") as f:
+                log_data = f.read()
+            self.assertIn("DELETE", log_data)
+            self.assertIn("rec_111", log_data)
+            self.assertNotIn("rec_222", log_data)
+        finally:
+            if env_existed:
+                with open(mock_env, "w") as f:
+                    f.write(orig_env_content)
+            else:
+                if os.path.exists(mock_env):
+                    os.remove(mock_env)
+
     def test_init_aws_missing_params(self):
         """init_aws.sh without alias or region should error."""
         init_aws_sh = os.path.join(self.core_dir, "init_aws.sh")

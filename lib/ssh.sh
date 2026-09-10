@@ -210,7 +210,7 @@ function probe_ssh_user() {
     local identity_file="${2:-}"
     local candidate_users=("admin" "ubuntu" "root" "ec2-user")
     
-    local extra_opts=(-o BatchMode=yes -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+    local extra_opts=(-o BatchMode=yes -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ControlMaster=no -o ControlPath=none)
     if [ -n "$identity_file" ] && [ -f "$identity_file" ]; then
         extra_opts+=(-i "$identity_file")
     fi
@@ -251,7 +251,10 @@ function guess_default_user() {
 function detect_remote_ipv6() {
     local target="$1"
     local ssh_config="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
-    local opts=(-o BatchMode=yes)
+    local opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+        opts+=(-o ControlMaster=no -o ControlPath=none)
+    fi
     if [ -f "$ssh_config" ]; then
         opts+=(-F "$ssh_config")
     fi

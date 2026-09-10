@@ -5,6 +5,8 @@ import os
 class TestGatewayWorker(unittest.TestCase):
     def test_worker_javascript_suite(self):
         jsc_bin = "/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc"
+        if not os.path.exists(jsc_bin):
+            self.skipTest("macOS jsc binary not found on this platform")
         test_file = os.path.join(os.path.dirname(__file__), "..", "gateway", "test_worker.js")
         
         proc = subprocess.run([jsc_bin, "-m", test_file], capture_output=True, text=True)

@@ -115,6 +115,89 @@ fi
 # Clean up matching ~/.ssh/config entries
 remove_ssh_alias "$SSH_ALIAS"
 
+# Clean up matching Cloudflare DNS records if CF credentials are configured
+cf_cleaned_count=0
+if [ -n "${CF_API_TOKEN:-}" ] && [ -n "${CF_ZONE_ID:-}" ]; then
+    if [ "$CNSR_LANG" = "en" ]; then
+        echo "☁️ Cleaning up matching Cloudflare DNS records..."
+    else
+        echo "☁️ 正在清理 Cloudflare 中匹配的 DNS 解析记录..."
+    fi
+
+    CF_RECS_JSON=""
+    for attempt in 1 2 3; do
+        CF_RECS_JSON=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records?per_page=100" \
+            -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" 2>/dev/null || true)
+        if [ -n "$CF_RECS_JSON" ]; then
+            break
+        fi
+        sleep_time=$(( attempt + RANDOM % 2 ))
+        [ -n "${TEST_SSH_CONFIG:-}" ] && sleep_time=0
+        [ "$sleep_time" -gt 0 ] && sleep "$sleep_time"
+    done
+
+    MATCHED_REC_IDS=$(uv run python -c "
+import sys, json, fnmatch
+
+alias_pattern = sys.argv[1]
+raw_output = sys.argv[2]
+del_names = set()
+del_ips = set()
+
+try:
+    for line in raw_output.splitlines():
+        line = line.strip()
+        if line.startswith('{'):
+            data = json.loads(line)
+            for item in data.get('deleted', []):
+                if item.get('name'):
+                    del_names.add(item.get('name'))
+                for ip in item.get('ips', []):
+                    if ip:
+                        del_ips.add(ip)
+                if item.get('ip'):
+                    del_ips.add(item.get('ip'))
+            break
+except Exception:
+    pass
+
+try:
+    data = json.loads(sys.stdin.read())
+    recs = data.get('result', [])
+    matched_ids = []
+    for r in recs:
+        if r.get('type') not in ['A', 'AAAA']:
+            continue
+        rec_id = r.get('id')
+        comment = r.get('comment', '')
+        content = r.get('content', '')
+        if (comment and (comment == alias_pattern or fnmatch.fnmatch(comment, alias_pattern))) or \
+           (comment and comment in del_names) or \
+           (content and content in del_ips):
+            if rec_id:
+                matched_ids.append(rec_id)
+    print(' '.join(matched_ids))
+except Exception:
+    pass
+" "$SSH_ALIAS" "$output" <<< "$CF_RECS_JSON" 2>/dev/null || true)
+
+    for id in $MATCHED_REC_IDS; do
+        del_resp=$(curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$id" \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            -H "Content-Type: application/json" 2>/dev/null || true)
+        del_success=$(uv run python -c "
+import sys, json
+try:
+    print('true' if json.loads(sys.argv[1]).get('success') else 'false')
+except Exception:
+    print('false')
+" "$del_resp" 2>/dev/null || echo "false")
+        if [ "$del_success" = "true" ]; then
+            cf_cleaned_count=$((cf_cleaned_count + 1))
+        fi
+    done
+fi
+
 # Parse output
 deleted_count=$(echo "$output" | uv run python -c "
 import sys, json
@@ -131,15 +214,31 @@ except Exception:
 
 if [ "$deleted_count" -gt 0 ]; then
     if [ "$CNSR_LANG" = "en" ]; then
-        echo "✅ Successfully destroyed $deleted_count instance(s) and cleaned SSH config entries."
+        if [ "$cf_cleaned_count" -gt 0 ]; then
+            echo "✅ Successfully destroyed $deleted_count instance(s), cleaned SSH config and $cf_cleaned_count Cloudflare DNS record(s)."
+        else
+            echo "✅ Successfully destroyed $deleted_count instance(s) and cleaned SSH config entries."
+        fi
     else
-        echo "✅ 成功销毁 $deleted_count 个实例并清理关联静态 IP 与本地 SSH 配置。"
+        if [ "$cf_cleaned_count" -gt 0 ]; then
+            echo "✅ 成功销毁 $deleted_count 个实例，清理关联静态 IP、本地 SSH 配置及 $cf_cleaned_count 条 Cloudflare DNS 解析记录。"
+        else
+            echo "✅ 成功销毁 $deleted_count 个实例并清理关联静态 IP 与本地 SSH 配置。"
+        fi
     fi
 else
     if [ "$CNSR_LANG" = "en" ]; then
-        echo "ℹ️ No instances found matching '$SSH_ALIAS' in region $REGION."
+        if [ "$cf_cleaned_count" -gt 0 ]; then
+            echo "ℹ️ No instances found matching '$SSH_ALIAS' in region $REGION (cleaned $cf_cleaned_count Cloudflare DNS record(s))."
+        else
+            echo "ℹ️ No instances found matching '$SSH_ALIAS' in region $REGION."
+        fi
     else
-        echo "ℹ️ 在区域 $REGION 未找到匹配 '$SSH_ALIAS' 的实例。"
+        if [ "$cf_cleaned_count" -gt 0 ]; then
+            echo "ℹ️ 在区域 $REGION 未找到匹配 '$SSH_ALIAS' 的实例 (已清理 $cf_cleaned_count 条 Cloudflare DNS 解析记录)。"
+        else
+            echo "ℹ️ 在区域 $REGION 未找到匹配 '$SSH_ALIAS' 的实例。"
+        fi
     fi
 fi
 

@@ -16,9 +16,16 @@ elif [ -f ".env.example" ]; then
     set +a
 fi
 export CNSR_LANG="${CNSR_LANG:-zh}"
+export PYTHONUTF8=1
+export PYTHONIOENCODING="utf-8"
 
 # Windows OpenSSH compatibility for Git Bash (ensures named pipe agent & keys work)
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]] && [ -d "/c/Windows/System32/OpenSSH" ]; then
+if [ -z "$OSTYPE" ]; then
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) export OSTYPE="msys" ;;
+    esac
+fi
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]] && [ -d "/c/Windows/System32/OpenSSH" ] && [ -z "$IS_TEST_MODE" ]; then
     export PATH="/c/Windows/System32/OpenSSH:$PATH"
 fi
 
