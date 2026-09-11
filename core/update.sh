@@ -69,7 +69,8 @@ function sync_node_scripts() {
     local PROBE_INFO=$(ssh "${ssh_opts[@]}" "$alias" "
         user=\$(eval echo ~\$USER)
         docker_dir=\"\${user}/docker-apps/xray\"
-        ip=\$(curl -4 -s --connect-timeout 3 ifconfig.me 2>/dev/null || curl -4 -s --connect-timeout 3 icanhazip.com 2>/dev/null || curl -4 -s --connect-timeout 3 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+        ip=\$(curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || curl -4 -s --connect-timeout 3 https://api.ipify.org 2>/dev/null || curl -4 -s --connect-timeout 3 https://checkip.amazonaws.com 2>/dev/null || curl -4 -s --connect-timeout 3 icanhazip.com 2>/dev/null || curl -4 -s --connect-timeout 3 ifconfig.me 2>/dev/null || true)
+        if echo \"\$ip\" | grep -Eq '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|127\.|169\.254\.)'; then ip=\"\"; fi
         ipv6=\$(hostname -I 2>/dev/null | tr ' ' '\n' | grep ':' | grep -v '^fe80' | grep -v '^fc' | grep -v '^fd' | head -n1 || curl -6 -s --connect-timeout 3 icanhazip.com 2>/dev/null || curl -6 -s --connect-timeout 3 ifconfig.me 2>/dev/null || true)
         server_host=\$(grep -E '^SERVER_HOST=' \${docker_dir}/reality_rotate.sh 2>/dev/null | cut -d'\"' -f2 || true)
         mkdir -p \${docker_dir}/conf 2>/dev/null || true
@@ -95,6 +96,14 @@ function sync_node_scripts() {
     # 2. 确定 IP / IPv6 / CIDR / 伪装域名 (远端探针为唯一权威物理来源)
     local IPV4="$override_ip"
     [ -z "$IPV4" ] && IPV4="$PROBED_IP"
+    if [[ "$IPV4" =~ ^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|127\.|169\.254\.) ]] || [ -z "$IPV4" ]; then
+        if declare -f get_real_host >/dev/null 2>&1; then
+            local real_h=$(get_real_host "$alias")
+            if [[ "$real_h" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                IPV4="$real_h"
+            fi
+        fi
+    fi
 
     local IPV4_CIDR="none"
     if [[ "$IPV4" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then

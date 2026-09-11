@@ -183,7 +183,10 @@ echo "   - [Outbound] Cloudflare: ${OUT_CF}"
 rm -f /tmp/ping_*
 
 function detect_local_ipv4() {
-    local detected_ip=$(curl -4 -s --connect-timeout 3 icanhazip.com 2>/dev/null || curl -4 -s --connect-timeout 3 ifconfig.me 2>/dev/null || curl -4 -s --connect-timeout 3 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || echo 'none')
+    local detected_ip=$(curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || curl -4 -s --connect-timeout 3 https://api.ipify.org 2>/dev/null || curl -4 -s --connect-timeout 3 https://checkip.amazonaws.com 2>/dev/null || curl -4 -s --connect-timeout 3 icanhazip.com 2>/dev/null || curl -4 -s --connect-timeout 3 ifconfig.me 2>/dev/null || echo 'none')
+    if echo "$detected_ip" | grep -Eq '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|127\.|169\.254\.)'; then
+        detected_ip='none'
+    fi
     [ -z "$detected_ip" ] && detected_ip='none'
     echo "$detected_ip"
 }
@@ -231,8 +234,13 @@ else
     echo "   - $SERVER_HOST 解析至: ${RESOLVED_IP:-N/A} ($DOMAIN_STATUS)"
 
     GLOBAL_RESOLVE=$(dig @1.1.1.1 +short +time=3 +tries=2 "$SERVER_HOST" A 2>/dev/null | tail -n1)
+    local dns_server="1.1.1.1"
+    if [ -z "$GLOBAL_RESOLVE" ]; then
+        GLOBAL_RESOLVE=$(dig @8.8.8.8 +short +time=3 +tries=2 "$SERVER_HOST" A 2>/dev/null | tail -n1)
+        dns_server="8.8.8.8"
+    fi
     if [ -n "$GLOBAL_RESOLVE" ]; then
-        echo "   - $SERVER_HOST 全球 DNS (1.1.1.1): $GLOBAL_RESOLVE"
+        echo "   - $SERVER_HOST 全球 DNS ($dns_server): $GLOBAL_RESOLVE"
         if [ "$GLOBAL_RESOLVE" != "$TARGET_IP" ]; then
             GLOBAL_STATUS="🟡 Mismatch ($GLOBAL_RESOLVE)"
         else

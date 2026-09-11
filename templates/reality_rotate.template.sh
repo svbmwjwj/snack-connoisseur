@@ -568,7 +568,7 @@ fi
 sudo docker compose restart xray
 
 echo "⏳ 等待 X-ray 容器启动并检查健康状态..."
-sleep 3
+sleep 5
 if ! sudo docker compose ps --format json xray 2>/dev/null | grep -q "running"; then
     echo "❌ 警告：X-ray 容器未成功启动！"
     sudo docker compose logs --tail 20 xray
