@@ -352,6 +352,41 @@ esac
         res_fail_en = subprocess.run(["bash", "-c", test_script, "bash", "alert_failure"], env=env_en, capture_output=True, text=True, check=True)
         self.assertIn("Critical Alert", res_fail_en.stdout)
 
+    def test_download_github_csv_pattern_matching(self):
+        """Test download_github_csv strictly matches timestamp when req_ts is passed, and falls back to generic when empty."""
+        template_path = os.path.join(self.templates_dir, "reality_rotate.template.sh")
+        script = f"""#!/bin/bash
+set -e
+eval "$(sed -n '/function download_github_csv()/,/^}}/p' "{template_path}")"
+
+# Inspect patterns variable for both cases
+function test_pattern() {{
+    local node_alias="$1"
+    local req_ts="$2"
+    local patterns=()
+    if [ -n "$req_ts" ]; then
+        patterns=("${{node_alias}}_${{req_ts}}.csv")
+    else
+        patterns=("${{node_alias}}.csv")
+    fi
+    echo "${{patterns[*]}}"
+}}
+
+case "$1" in
+    with_ts)
+        test_pattern "fg_jp-aws" "20260911_055314"
+        ;;
+    without_ts)
+        test_pattern "fg_jp-aws" ""
+        ;;
+esac
+"""
+        res_with = subprocess.run(["bash", "-c", script, "bash", "with_ts"], capture_output=True, text=True, check=True)
+        self.assertEqual(res_with.stdout.strip(), "fg_jp-aws_20260911_055314.csv")
+
+        res_without = subprocess.run(["bash", "-c", script, "bash", "without_ts"], capture_output=True, text=True, check=True)
+        self.assertEqual(res_without.stdout.strip(), "fg_jp-aws.csv")
+
 if __name__ == "__main__":
     unittest.main()
 

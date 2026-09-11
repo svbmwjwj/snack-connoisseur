@@ -131,6 +131,42 @@ exit 0
 EOF
 chmod +x "$TMP_DIR/bin/curl"
 
+if ! command -v jq >/dev/null 2>&1; then
+cat << 'EOF' > "$TMP_DIR/bin/jq"
+#!/bin/bash
+uv run python -c "
+import sys, json
+args = sys.argv[1:]
+data = {}
+i = 0
+while i < len(args):
+    if args[i] == '--arg' and i + 2 < len(args):
+        data[args[i+1]] = args[i+2]
+        i += 3
+    else:
+        i += 1
+expr = args[-1] if args else ''
+if 'text' in data:
+    print(json.dumps({'text': data['text'], 'parse_mode': 'Markdown'}))
+elif 'ip' in data:
+    payload = {
+        'target_ip': data.get('ip', ''),
+        'target_cidr_v4': data.get('v4', ''),
+        'target_cidr_v6': data.get('v6', ''),
+        'timestamp': data.get('ts', ''),
+        'alias': data.get('alias', '')
+    }
+    if 'client_payload' in expr:
+        print(json.dumps({'event_type': 'scan_trigger', 'client_payload': payload}))
+    else:
+        print(json.dumps(payload))
+else:
+    print(json.dumps(data))
+" "$@"
+EOF
+chmod +x "$TMP_DIR/bin/jq"
+fi
+
 # 4a. TG via Gateway
 rm -f "$TMP_DIR/curl.log"
 (cd "$TMP_DIR" && REPO_DIR="$REPO_DIR" PATH="$TMP_DIR/bin:$PATH" GATEWAY_URL="https://gw.mock" GATEWAY_AUTH_KEY="gwkey" ./test_send.sh tg_gateway)

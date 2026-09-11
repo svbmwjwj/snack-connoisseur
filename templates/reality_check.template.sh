@@ -58,7 +58,7 @@ GATEWAY_AUTH_KEY="${GATEWAY_AUTH_KEY:-}"
 function send_tg_message() {
     local text="$1"
     local resp=""
-    local http_code=0
+    local http_code=""
 
     if [ -n "$GATEWAY_URL" ]; then
         local payload
@@ -67,16 +67,20 @@ function send_tg_message() {
         if [ -n "$GATEWAY_AUTH_KEY" ]; then
             auth_header=(-H "Authorization: Bearer $GATEWAY_AUTH_KEY")
         fi
-        resp=$(curl -s -w "\n%{http_code}" -X POST "${auth_header[@]}" \
+        resp=$(curl -s --connect-timeout 8 --retry 2 --retry-delay 3 -w "\n%{http_code}" -X POST "${auth_header[@]}" \
             -H "Content-Type: application/json" \
             "$GATEWAY_URL/api/tg" \
             -d "$payload" 2>/dev/null || echo -e "\n000")
-        http_code=$(echo "$resp" | tail -n1)
-        local body=$(echo "$resp" | sed '$d')
+        http_code=$(echo "$resp" | tail -n1 | tr -d '[:space:]')
+        local body=$(echo "$resp" | sed '$d' | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
         if [[ "$http_code" =~ ^2[0-9]{2}$ ]] || [ -z "$http_code" ]; then
             return 0
         else
-            echo "⚠️ [TG] Gateway 推送失败 (HTTP $http_code): $body" >&2
+            if [ -n "$body" ] && [ "$body" != "000" ]; then
+                echo "⚠️ [TG] Gateway 推送失败 (HTTP $http_code): $body" >&2
+            else
+                echo "⚠️ [TG] Gateway 推送失败 (HTTP $http_code)" >&2
+            fi
             if [ -n "$TG_BOT_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
                 echo "🔄 [TG] 尝试降级为直连 Telegram 推送..." >&2
             else
@@ -86,16 +90,20 @@ function send_tg_message() {
     fi
 
     if [ -n "$TG_BOT_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
-        resp=$(curl -s -w "\n%{http_code}" -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+        resp=$(curl -s --connect-timeout 8 --retry 2 --retry-delay 3 -w "\n%{http_code}" -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TG_CHAT_ID}" \
             -d parse_mode="Markdown" \
             --data-urlencode "text=${text}" 2>/dev/null || echo -e "\n000")
-        http_code=$(echo "$resp" | tail -n1)
-        local body=$(echo "$resp" | sed '$d')
+        http_code=$(echo "$resp" | tail -n1 | tr -d '[:space:]')
+        local body=$(echo "$resp" | sed '$d' | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
         if [[ "$http_code" =~ ^2[0-9]{2}$ ]] || [ -z "$http_code" ]; then
             return 0
         else
-            echo "⚠️ [TG] 直连推送失败 (HTTP $http_code): $body" >&2
+            if [ -n "$body" ] && [ "$body" != "000" ]; then
+                echo "⚠️ [TG] 直连推送失败 (HTTP $http_code): $body" >&2
+            else
+                echo "⚠️ [TG] 直连推送失败 (HTTP $http_code)" >&2
+            fi
             return 1
         fi
     fi
