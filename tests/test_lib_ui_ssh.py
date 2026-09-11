@@ -487,6 +487,39 @@ Host local-node
         self.assertEqual(res_real.returncode, 0)
         self.assertEqual(res_real.stdout.strip(), "203.0.113.99")
 
+    def test_try_opportunistic_domain_upgrade_ssh_gate(self):
+        """try_opportunistic_domain_upgrade must not upgrade HostName if ssh ping to domain fails."""
+        with open(self.test_ssh_config, "w") as f:
+            f.write("""Host gate-node
+    HostName 1.2.3.4
+    User admin
+""")
+        # Mock ssh that rejects connection
+        bin_dir = os.path.join(self.temp_dir, "bin")
+        os.makedirs(bin_dir, exist_ok=True)
+        mock_ssh = os.path.join(bin_dir, "ssh")
+        with open(mock_ssh, "w", newline="\n") as f:
+            f.write("""#!/bin/bash
+exit 1
+""")
+        os.chmod(mock_ssh, 0o755)
+
+        cmd = f"""
+        export PATH="{bin_dir}:$PATH"
+        export TEST_SSH_CONFIG="{self.test_ssh_config}"
+        source "{self.ssh_sh}"
+        resolve_domain_ip_doh() {{ echo "1.2.3.4"; }}
+        try_opportunistic_domain_upgrade "gate-node" "unreachable.domain.com"
+        """
+        res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0)
+
+        with open(self.test_ssh_config, "r") as f:
+            content = f.read()
+        # HostName must remain 1.2.3.4 because ssh failed
+        self.assertIn("HostName 1.2.3.4", content)
+        self.assertNotIn("unreachable.domain.com", content)
+
 if __name__ == "__main__":
     unittest.main()
 

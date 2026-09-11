@@ -382,8 +382,10 @@ function spawn_dns_convergence_worker() {
             for wait_time in "${intervals[@]}"; do
                 resolved_ip=$(resolve_domain_ip_doh "$domain")
                 if [ -n "$resolved_ip" ]; then
-                    upgrade_ssh_config_hostname "$alias" "$domain" >/dev/null 2>&1
-                    exit 0
+                    if ssh -o BatchMode=yes -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new -o HostName="$domain" -o ControlMaster=no -o ControlPath=none -F "$ssh_config" "$alias" "echo 1" >/dev/null 2>&1; then
+                        upgrade_ssh_config_hostname "$alias" "$domain" >/dev/null 2>&1
+                        exit 0
+                    fi
                 fi
                 sleep "$wait_time"
             done
@@ -406,7 +408,10 @@ function try_opportunistic_domain_upgrade() {
         local resolved_ip
         resolved_ip=$(resolve_domain_ip_doh "$domain")
         if [ -n "$resolved_ip" ]; then
-            upgrade_ssh_config_hostname "$alias" "$domain" >/dev/null 2>&1
+            local ssh_config="${SSH_CONFIG_PATH:-${TEST_SSH_CONFIG:-$HOME/.ssh/config}}"
+            if ssh -o BatchMode=yes -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new -o HostName="$domain" -o ControlMaster=no -o ControlPath=none -F "$ssh_config" "$alias" "echo 1" >/dev/null 2>&1; then
+                upgrade_ssh_config_hostname "$alias" "$domain" >/dev/null 2>&1
+            fi
         fi
     fi
 }
