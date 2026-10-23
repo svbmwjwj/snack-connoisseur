@@ -190,4 +190,8 @@ def main(argv: list[str] | None = None) -> int:
     if ns.command is None:
         sys.stdout.write(HELP_TEXT)
         return 0
+    # Windows support is paused until its test failures are worked through.
+    if sys.platform == "win32":
+        sys.stderr.write("cnsr 暂不支持 Windows，请在 macOS 或 Linux 上运行。\n")
+        return 1
     return _run_logged(ns, argv)

@@ -6,7 +6,7 @@ Blocking is detected from the client side: a Quantumult X task on your device ch
 
 ## Requirements
 
-- Python 3.12 and [uv](https://docs.astral.sh/uv/) on the machine you run `cnsr` from (macOS, Linux or Windows).
+- Python 3.12 and [uv](https://docs.astral.sh/uv/) on the machine you run `cnsr` from (macOS or Linux; Windows is not supported for now).
 - A domain on Cloudflare, and an API token with DNS edit, Workers Scripts edit and Workers KV edit permissions. `cnsr` checks each permission on first run and names any that are missing.
 - For a new AWS node: an AWS access key that can manage Lightsail.
 - For an existing server: SSH access to it.

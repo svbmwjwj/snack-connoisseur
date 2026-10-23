@@ -31,6 +31,13 @@ def test_version(capsys):
     assert capsys.readouterr().out == f"cnsr {__version__}\n"
 
 
+def test_commands_refuse_to_run_on_windows(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert main(["list"]) == 1
+    assert capsys.readouterr().err == "cnsr 暂不支持 Windows，请在 macOS 或 Linux 上运行。\n"
+    assert main([]) == 0 and main(["--version"]) == 0
+
+
 def test_the_version_comes_from_pyproject_alone():
     pyproject = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8"))
     assert __version__ == pyproject["project"]["version"]
