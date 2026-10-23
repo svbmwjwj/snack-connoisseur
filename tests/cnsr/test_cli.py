@@ -142,8 +142,10 @@ def test_keyboard_interrupt_returns_130(monkeypatch, commands, capsys):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="no SIGHUP on Windows")
-@pytest.mark.parametrize("signum", [signal.SIGHUP, signal.SIGTERM])
-def test_a_closed_terminal_is_an_interrupt_that_cleans_up(monkeypatch, commands, capsys, signum):
+# Signals by name: signal.SIGHUP does not exist on Windows, and parametrize is evaluated at import.
+@pytest.mark.parametrize("name", ["SIGHUP", "SIGTERM"])
+def test_a_closed_terminal_is_an_interrupt_that_cleans_up(monkeypatch, commands, capsys, name):
+    signum = getattr(signal, name)
     cleaned = []
 
     def hung_up(ns):
