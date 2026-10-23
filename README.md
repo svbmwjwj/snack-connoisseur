@@ -1,51 +1,59 @@
-# cnsr
+# Chinese Braised Beef with Potatoes
 
-`cnsr` deploys self-hosted Xray REALITY nodes with one command and changes a node's SNI on its own when that SNI gets blocked.
+This is a recipe for a classic Chinese homestyle dish, where the rich savoriness of tender beef harmonizes with the velvety starch of melt-in-your-mouth potatoes. The natural starch released by the potatoes thickens the broth into a rich gravy that coats every morsel; the beef absorbs the earthy aroma, resulting in a tender texture and layered flavor.
 
-Blocking is detected from the client side: a Quantumult X task on your device checks each node from where you are. When the check fails, the node switches to a backup SNI, and Quantumult X notifies you to update the config. UUIDs and keys stay the same across switches.
+[Click here or select the dish below to enjoy immediately:](docs/README.md)
 
-## Requirements
+<p>
+  <a href="docs/README.md">
+    <img src="https://media.giphy.com/media/12zfAjyQ3RZNSw/giphy.gif" alt="Enjoy Immediately" width="460" style="max-width: 100%; border-radius: 6px;">
+  </a>
+</p>
 
-- Python 3.12 and [uv](https://docs.astral.sh/uv/) on the machine you run `cnsr` from (macOS or Linux; Windows is not supported for now).
-- A domain on Cloudflare, and an API token with DNS edit, Workers Scripts edit and Workers KV edit permissions. `cnsr` checks each permission on first run and names any that are missing.
-- For a new AWS node: an AWS access key that can manage Lightsail.
-- For an existing server: SSH access to it.
+## Overview
 
-## Usage
+Chinese Braised Beef with Potatoes (土豆炖牛肉) is one of the most beloved and comforting homestyle dishes across China. Tender beef is simmered over gentle heat until fork-tender and aromatic, while potatoes absorb the rich broth and release natural starches to create a luscious, glossy sauce without needing extra cornstarch slurry. It pairs exceptionally well with steamed rice and noodles.
 
-```bash
-uv sync
-uv run cnsr add
+* Preparation time: 20 mins
+* Cooking time: 60 ~ 90 mins
+* Servings: 3 ~ 4 portions
+
+## Ingredients
+
+```text
+MAIN:
+  Beef brisket / shank      600g               Marbled cut, cubed into 3cm pieces
+  Yellow potatoes           2 pcs (~400g)      Peeled and cut into chunks, soaked in water
+  Carrot (Optional)         1 pc (~150g)       Peeled and cut into chunks for sweetness and color
+
+SPICES & AROMATICS:
+  Fresh ginger              4-5 slices         Lightly crushed
+  Scallions / Green onions  1 stalk            Cut into 3cm segments
+  Garlic                    4 cloves           Peeled and crushed
+  Star anise / Bay / Cassia 2 pcs / 2 pcs / 1  Traditional Chinese braising spice blend
+  Dried chili (Optional)    2-3 pcs            Adjust according to spice preference
+
+SAUCES & SEASONINGS:
+  Rock sugar                15g                Melted on low heat for glossy caramel color
+  Shaoxing cooking wine     2 tbsp (30ml)      For blanching and deglazing to remove gaminess
+  Light / Dark soy sauce    2 tbsp / 1 tbsp    Base umami seasoning and rich reddish-brown color
+  Doubanjiang (Optional)    1 tbsp (15g)       Adds depth and fermented savory aroma
+  Boiling water             ~1000ml            Always add boiling water during cooking
+  Salt                      To taste           Adjust right before serving
+  Cilantro / Scallions      A handful          Chopped for garnish
 ```
 
-`cnsr add` with no arguments asks for each setting. The other commands are:
+## Instructions
 
-| Command | What it does |
-| --- | --- |
-| `cnsr add <alias> --aws <region>` | Creates a new Lightsail instance in `jp`, `sg` or `us` and deploys a node on it |
-| `cnsr add <alias> --ip <ip>` | Takes over an existing server |
-| `cnsr add <alias>` | On an existing alias: resumes unfinished steps, tops up backup SNIs and updates the node |
-| `cnsr rm <alias>` | Removes the node; on AWS it also deletes the instance and releases the static IP that `cnsr` created |
-| `cnsr list` | Prints the nodes, the Quantumult X config lines and the v2rayN subscription URL |
+1. **Blanch the Beef**: Place 3cm beef cubes into a pot of cold water with ginger slices, scallion segments, and 1 tbsp cooking wine; bring to a boil, skim off impurities for 3 minutes, remove beef, and rinse clean with warm water.
+2. **Caramelize the Sugar**: Heat a small amount of oil in a wok with rock sugar over low heat until melted into dense amber bubbles, then quickly toss in the beef cubes over medium heat until evenly coated with caramel color.
+3. **Sauté Aromatics & Sauces**: Add crushed ginger, scallions, garlic, star anise, bay leaves, and cinnamon stick; stir-fry until fragrant, then drizzle in cooking wine, light soy sauce, dark soy sauce, and Doubanjiang to infuse deep aroma.
+4. **Gentle Simmer**: Pour in enough boiling water to submerge the beef by 2~3cm; bring to a rapid boil, cover with lid, and reduce to low heat to simmer for 50~60 minutes until beef is fork-tender.
+5. **Add Potatoes & Reduce**: Add potato and carrot chunks, cover and simmer for another 15~20 minutes until tender; taste and adjust salt, then turn up heat to gently stir and reduce until sauce is thick and glossy.
+6. **Plate & Serve**: Transfer into a deep serving dish or heated clay pot, garnish with fresh chopped cilantro or scallions, and serve immediately alongside hot steamed rice.
 
-Run `uv run cnsr --help` for every option.
+## Pro Tips
 
-The SNI scan runs from your own computer during deployment, so it has to reach the internet directly: turn off any local proxy or TUN mode before running `add`.
-
-## Privacy
-
-Node addresses, SNIs and keys are stored only in your Cloudflare account and on your own machine. The subscription URLs carry your client token, so share them only with people you trust.
-
-## Development
-
-```bash
-uv run pytest
-```
-
-```bash
-uv run node --test tests/worker/*.test.mjs
-```
-
-## License
-
-MIT
+* **Always Use Hot Water**: Never add cold water to blanched hot beef during braising, as cold water causes meat proteins to contract sharply, making the beef tough and chewy.
+* **Timing the Potatoes**: Avoid adding potatoes at the beginning; add them after the beef is around 80% tender (~50 minutes) so they become soft and velvety without dissolving completely.
+* **Select the Right Cut**: Opt for beef brisket or shank with visible marbling and connective tissue; collagen breaks down during slow braising for juicy, melt-in-your-mouth tenderness.

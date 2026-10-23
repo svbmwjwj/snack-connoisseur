@@ -1,7 +1,7 @@
 [project]
 name = "snack-connoisseur"
 version = "0.2.0.dev0"
-description = "Snack Connoisseur - X-ray REALITY Controller & Cloud Manager"
+description = "Snack Connoisseur - homestyle Chinese recipes"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
