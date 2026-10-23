@@ -1,0 +1,18 @@
+# cnsr's SNI rotation service: polls the control plane and changes the REALITY SNI on request.
+[Unit]
+Description=cnsr SNI rotation
+Wants=network-online.target
+After=network-online.target docker.service
+# Left when the control plane refused the token (the node was removed); every add deletes it.
+ConditionPathExists=!/opt/cnsr/stopped
+
+[Service]
+Type=simple
+ExecStart=/opt/cnsr/bin/cnsr-rotate.sh
+Restart=on-failure
+RestartSec=30
+# The TERM trap of a normal `systemctl stop` exits 143; any other failure restarts the service.
+SuccessExitStatus=143
+
+[Install]
+WantedBy=multi-user.target

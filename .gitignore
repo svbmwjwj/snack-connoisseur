@@ -1,0 +1,23 @@
+# Local agent and notes folders (often symlinks), never pushed
+.agents
+.agents/
+.superpowers
+.superpowers/
+superpowers
+superpowers/
+.notes
+.notes/
+
+# Python environment and test caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Credentials, logs and system caches
+.env
+*.log
+logs/
+.DS_Store
+scratch/
+.tmp/

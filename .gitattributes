@@ -1,0 +1,4 @@
+# Keep LF line endings on every checkout, Windows included: the node scripts are
+# streamed to bash, and tests compare bytes.
+src/cnsr/** text=auto eol=lf
+tests/** text=auto eol=lf

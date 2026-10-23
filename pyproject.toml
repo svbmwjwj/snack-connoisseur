@@ -1,0 +1,32 @@
+[project]
+name = "snack-connoisseur"
+version = "0.2.0.dev0"
+description = "Snack Connoisseur - X-ray REALITY Controller & Cloud Manager"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.34",
+    "httpx>=0.27",
+    "cryptography>=43",
+    "questionary>=2.1",
+    "rich>=13.7",
+]
+
+[project.scripts]
+cnsr = "cnsr.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "nodejs-wheel>=22",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "cnsr"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/cnsr"]
