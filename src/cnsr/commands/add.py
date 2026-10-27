@@ -24,6 +24,7 @@ from cnsr.deploy.steps import run_pipeline
 from cnsr.errors import CnsrError
 from cnsr.naming import validate_alias
 from cnsr.qx import client_lines, v2rayn_url
+from cnsr.server import xray
 from cnsr.ssh.config import HostBlock, read_block
 from cnsr.state import Inventory, Node, SshInfo
 
@@ -123,7 +124,7 @@ def prepare(ns: Namespace, deps: Deps) -> DeployContext:
     node = existing or Node(alias=alias, source=req.source, ipv4="", region=req.region)
     node.ssh = SshInfo(req.user, req.port, key_name)
     return DeployContext(
-        req, deps, node, inventory, cf, zone_id, zone, meta, key, agent,
+        req, deps, node, inventory, cf, zone_id, zone, meta, key, agent, xray.PORTS,
         lightsail=lightsail, saved=saved, deployed=existing is not None and existing.line is not None,
     )  # fmt: skip
 

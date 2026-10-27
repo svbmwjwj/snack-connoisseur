@@ -19,9 +19,11 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from cnsr.errors import CnsrError
+from cnsr.server.preflight import NODE_DIR
 
 XRAY_IMAGE = "ghcr.io/xtls/xray-core:26.3.27"
-NODE_DIR = "/opt/cnsr"
+# What Xray listens on, opened in the takeover check and the Lightsail firewall.
+PORTS = ((443, "tcp"), (443, "udp"))
 COMPOSE_PATH = f"{NODE_DIR}/xray/compose.yml"
 CONFIG_PATH = f"{NODE_DIR}/xray/conf/config.json"
 BACKUPS_PATH = f"{NODE_DIR}/backups.json"

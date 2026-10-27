@@ -39,7 +39,7 @@ DEFAULT_KEY_PAIR = "LightsailDefaultKeyPair"
 POLL_SECONDS = 5
 
 _OPEN_TO_ALL = {"cidrs": ["0.0.0.0/0"], "ipv6Cidrs": ["::/0"]}
-_OPEN_PORTS = ((22, "tcp"), (443, "tcp"), (443, "udp"))
+_SSH_PORT = (22, "tcp")
 
 class KeyConflict(CnsrError):
     """A key pair of the wanted name exists but holds a different key."""
@@ -164,11 +164,12 @@ class Lightsail(StaticIps):
         addresses = self._call("get_instance", instanceName=name).get("instance", {}).get("ipv6Addresses") or []
         return addresses[0] if addresses else None
 
-    def set_firewall(self, name: str) -> None:
-        """Open exactly 22/tcp, 443/tcp and 443/udp to IPv4 and IPv6; anything else is closed."""
+    def set_firewall(self, name: str, app_ports: tuple[tuple[int, str], ...]) -> None:
+        """Open exactly 22/tcp and the ``(port, protocol)`` pairs in ``app_ports`` to IPv4 and IPv6;
+        anything else is closed."""
         port_infos = [
             {"fromPort": port, "toPort": port, "protocol": protocol, **{k: list(v) for k, v in _OPEN_TO_ALL.items()}}
-            for port, protocol in _OPEN_PORTS
+            for port, protocol in (_SSH_PORT, *app_ports)
         ]
         self._call("put_instance_public_ports", instanceName=name, portInfos=port_infos)
 

@@ -30,6 +30,7 @@ from ssh_fakes import CONFIG, T, FakeSsh
 
 from cnsr.errors import CnsrError
 from cnsr.server.preflight import evaluate, parse_facts
+from cnsr.server.xray import PORTS
 from cnsr.ssh.remote import Remote
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="bash is not available on Windows")
@@ -41,7 +42,7 @@ def test_clean_debian_prints_the_documented_keys_in_order(run):
     out = run()
     assert out.done.returncode == 0 and out.done.stderr == b""
     assert out.lines == CLEAN_LINES
-    assert evaluate(facts_of(out), ssh_port=22, will_harden=True) == []
+    assert evaluate(facts_of(out), ssh_port=22, will_harden=True, app_ports=PORTS) == []
 
 
 def test_probes_run_under_a_time_limit_when_timeout_exists(run):
@@ -75,7 +76,7 @@ def test_every_optional_probe_failing_still_exits_zero_with_facts_for_nothing_th
     out = run(failing(*(command for command in CLEAN_FAKES if command not in REQUIRED)), os_release=None, sshd_config=None)
     assert out.done.returncode == 0 and out.done.stderr == b""
     assert out.lines == ["os_id=", "os_version=", "arch=", "user=", *LISTEN_LINES, "containers=0", "admin_exists=0", "ipv6="]
-    assert evaluate(facts_of(out), ssh_port=22, will_harden=True)[0].startswith("不支持的系统")
+    assert evaluate(facts_of(out), ssh_port=22, will_harden=True, app_ports=PORTS)[0].startswith("不支持的系统")
 
 
 def test_tools_that_are_not_installed_count_as_nothing_there(run):
@@ -179,7 +180,7 @@ def test_udp_listeners_are_reported_apart_from_tcp(run):
         "udp_listen=127.0.0.53%lo:53", "udp_listen=0.0.0.0:68", "udp_listen=*:443", "udp_listen=[::]:546",
     ]  # fmt: skip
     assert out.facts("listen=") == CLEAN_LINES[4:7]
-    assert evaluate(facts_of(out), ssh_port=22, will_harden=True) == ["443 端口已被占用"]
+    assert evaluate(facts_of(out), ssh_port=22, will_harden=True, app_ports=PORTS) == ["443 端口已被占用"]
 
 
 # --- containers --------------------------------------------------------------------------
@@ -188,7 +189,7 @@ def test_udp_listeners_are_reported_apart_from_tcp(run):
 def test_containers_are_counted_from_docker_ps(run):
     out = run({"docker ps -q": "3f2a9c1d7b44\n9b0e5d8a1c27\n"})
     assert "containers=2" in out.lines
-    assert evaluate(facts_of(out), ssh_port=22, will_harden=True) == ["已有 2 个容器在运行"]
+    assert evaluate(facts_of(out), ssh_port=22, will_harden=True, app_ports=PORTS) == ["已有 2 个容器在运行"]
 
 
 def test_a_docker_that_is_not_running_is_not_started_by_asking_it(run):
@@ -215,7 +216,7 @@ def test_active_ufw_prints_one_line_per_rule_with_single_spaces(run):
     assert out.facts("fw=") == [
         "fw=22/tcp ALLOW Anywhere", "fw=443/tcp ALLOW Anywhere", "fw=22/tcp (v6) ALLOW Anywhere (v6)", "fw=OpenSSH (v6) ALLOW Anywhere (v6)",
     ]  # fmt: skip
-    assert evaluate(facts_of(out), ssh_port=22, will_harden=True) == ["已有防火墙规则：443/tcp ALLOW Anywhere"]
+    assert evaluate(facts_of(out), ssh_port=22, will_harden=True, app_ports=PORTS) == ["已有防火墙规则：443/tcp ALLOW Anywhere"]
 
 
 def test_active_ufw_with_no_rules_prints_nothing(run):
@@ -263,7 +264,7 @@ def test_admin_exists(run):
 def test_uncommented_port_lines_are_printed_with_single_spaces(run):
     out = run(sshd_config=SSHD_CONFIG)
     assert out.facts("port_line=") == ["port_line=Port 2222", "port_line=port 2200", "port_line=Port=2300"]
-    assert "sshd_config" in evaluate(facts_of(out), ssh_port=22, will_harden=True)[0]
+    assert "sshd_config" in evaluate(facts_of(out), ssh_port=22, will_harden=True, app_ports=PORTS)[0]
 
 
 def test_port_lines_in_sshd_config_d_drop_ins_count_after_those_of_sshd_config(run):
@@ -278,7 +279,7 @@ def test_port_lines_in_sshd_config_d_drop_ins_count_after_those_of_sshd_config(r
 def test_a_vendor_drop_in_with_port_22_is_a_finding(run):
     out = run(sshd_config_d={"50-cloud-init.conf": "Port 22\n"})
     assert out.facts("port_line=") == ["port_line=Port 22"]
-    assert "sshd_config" in evaluate(facts_of(out), ssh_port=22, will_harden=True)[0]
+    assert "sshd_config" in evaluate(facts_of(out), ssh_port=22, will_harden=True, app_ports=PORTS)[0]
 
 
 def test_the_cnsr_drop_in_is_not_a_hard_coded_port(run):

@@ -13,8 +13,7 @@ from cnsr.errors import CnsrError
 from cnsr.paths import private_dir
 from cnsr.server import baseline
 from cnsr.server.harden import ADMIN, DROP_IN, Hardener
-from cnsr.server.preflight import Facts, evaluate, parse_facts
-from cnsr.server.xray import NODE_DIR
+from cnsr.server.preflight import NODE_DIR, Facts, evaluate, parse_facts
 from cnsr.ssh.config import HostBlock, read_block, write_block
 from cnsr.ssh.remote import SshError
 from cnsr.waiting import Deadline
@@ -122,7 +121,7 @@ def step_connect(ctx: DeployContext) -> None:
     marker_found = ctx.exists(NODE_DIR)
     ctx.facts = parse_facts(remote.run_script("preflight.sh", [str(node.ssh.port)]))
     if not marker_found:
-        findings = evaluate(ctx.facts, ssh_port=node.ssh.port, will_harden=_hardens(ctx))
+        findings = evaluate(ctx.facts, ssh_port=node.ssh.port, will_harden=_hardens(ctx), app_ports=ctx.app_ports)
         if findings:
             raise CnsrError(_refusal(findings, installed))
         remote.run(["mkdir", "-p", "-m", "700", NODE_DIR], sudo=True)
@@ -294,8 +293,9 @@ def _aws_baseline(ctx: DeployContext) -> None:
     problems = baseline.per_login(contexts)
     if problems:
         raise CnsrError("实例的 SSH 设置不符合基线，已停止：" + "；".join(problems))
-    ctx.lightsail.set_firewall(ctx.node.instance_name)
-    ctx.deps.ui.detail("已开启自动安全更新；Lightsail 防火墙只放行 22 和 443。")
+    ctx.lightsail.set_firewall(ctx.node.instance_name, ctx.app_ports)
+    *first, last = [22, *sorted({port for port, _ in ctx.app_ports})]
+    ctx.deps.ui.detail(f"已开启自动安全更新；Lightsail 防火墙只放行 {'、'.join(map(str, first))} 和 {last}。")
 
 
 def _hardener(ctx: DeployContext) -> Hardener:

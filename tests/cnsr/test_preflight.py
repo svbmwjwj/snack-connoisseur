@@ -6,6 +6,7 @@ import pytest
 
 from cnsr.errors import CnsrError
 from cnsr.server.preflight import SUPPORTED, Facts, evaluate, parse_facts
+from cnsr.server.xray import PORTS
 
 CLEAN = (
     "os_id=debian\nos_version=12\narch=x86_64\nuser=root\n"
@@ -21,7 +22,7 @@ def with_extra(extra: str) -> str:
 
 
 def check(text: str = CLEAN, *, ssh_port: int = 22, will_harden: bool = True) -> list[str]:
-    return evaluate(parse_facts(text), ssh_port=ssh_port, will_harden=will_harden)
+    return evaluate(parse_facts(text), ssh_port=ssh_port, will_harden=will_harden, app_ports=PORTS)
 
 
 # --- parse_facts -------------------------------------------------------------------------
@@ -102,7 +103,7 @@ def test_every_finding_with_exact_text_in_table_order():
     ("port_line=Port 22\n", "写死了 SSH 端口"),
 ])
 def test_findings(extra, needle):
-    out = evaluate(parse_facts(with_extra(extra)), ssh_port=22, will_harden=True)
+    out = evaluate(parse_facts(with_extra(extra)), ssh_port=22, will_harden=True, app_ports=PORTS)
     assert any(needle in s for s in out)
 
 

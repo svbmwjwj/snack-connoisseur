@@ -19,6 +19,7 @@ from cnsr.deploy.context import (
 from cnsr.ssh import agent
 from cnsr.ssh.agent import SESSION_AGENT, known_sockets
 from cnsr.ssh.remote import Remote, Target
+from cnsr.server.xray import PORTS
 from cnsr.state import ControlMeta, Node, SshInfo
 from cnsr.ui import Ui
 
@@ -36,7 +37,7 @@ class RecordingInventory:
 def context(deps, inventory=None) -> DeployContext:
     node = Node(alias="jp-1", source="vps", ipv4=VPS_IP, ssh=SshInfo("root", 22, "jp-1"))
     req = AddRequest("jp-1", "vps", None, VPS_IP, "root", 22)
-    return DeployContext(req, deps, node, inventory, None, "zone-1", "example.com", META, agent_key("jp-1"), AGENT)
+    return DeployContext(req, deps, node, inventory, None, "zone-1", "example.com", META, agent_key("jp-1"), AGENT, PORTS)
 
 
 def test_default_deps_use_this_users_files(monkeypatch, tmp_path):

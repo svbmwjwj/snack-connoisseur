@@ -15,7 +15,8 @@ from cnsr.errors import CnsrError
 
 SUPPORTED = {("debian", "12"), ("debian", "13"), ("ubuntu", "22.04"), ("ubuntu", "24.04")}
 SUPPORTED_ARCH = "x86_64"
-_XRAY_PORT = 443
+# Created right after the first clean preflight: a server that has it was taken over by cnsr.
+NODE_DIR = "/opt/cnsr"
 # The LLMNR responder systemd-resolved opens on every address of a fresh Debian 13 (Lightsail's
 # image included). The cloud or host firewall keeps it closed, so it is part of a fresh system.
 _SYSTEM_PORTS = frozenset({5355})
@@ -64,11 +65,14 @@ def parse_facts(text: str) -> Facts:
     return facts
 
 
-def evaluate(f: Facts, *, ssh_port: int, will_harden: bool) -> list[str]:
+def evaluate(
+    f: Facts, *, ssh_port: int, will_harden: bool, app_ports: tuple[tuple[int, str], ...]
+) -> list[str]:
     """Everything that stops a takeover, as Chinese messages; an empty list means go ahead.
 
     ``will_harden`` is False for servers cnsr creates itself (AWS), where the checks that
-    only matter for changing SSH settings are skipped.
+    only matter for changing SSH settings are skipped. ``app_ports`` are the ``(port, protocol)``
+    pairs the node's service will listen on.
     """
     findings: list[str] = []
     if (f.os_id, f.os_version) not in SUPPORTED or f.arch != SUPPORTED_ARCH:
@@ -77,14 +81,18 @@ def evaluate(f: Facts, *, ssh_port: int, will_harden: bool) -> list[str]:
         )
     listeners = [parsed for address in f.listen if (parsed := _split_address(address))]
     udp = [parsed for address in f.udp_listen if (parsed := _split_address(address))]
-    # Xray takes 443 over TCP, and over UDP where it is open to the world; other UDP is fine.
-    if any(port == _XRAY_PORT for _, port in listeners) or any(
-        port == _XRAY_PORT and not _is_loopback(host) for host, port in udp
-    ):
-        findings.append("443 端口已被占用")
+    # The service takes its TCP ports on every address, and its UDP ports where they are open
+    # to the world; other UDP is fine.
+    busy = sorted({
+        port for port, protocol in app_ports
+        if (protocol == "tcp" and any(p == port for _, p in listeners))
+        or (protocol == "udp" and any(p == port and not _is_loopback(host) for host, p in udp))
+    })
+    findings.extend(f"{port} 端口已被占用" for port in busy)
+    tcp_ports = {port for port, protocol in app_ports if protocol == "tcp"}
     others = sorted({
         port for host, port in listeners
-        if not _is_loopback(host) and port not in (ssh_port, _XRAY_PORT) and port not in _SYSTEM_PORTS
+        if not _is_loopback(host) and port != ssh_port and port not in tcp_ports and port not in _SYSTEM_PORTS
     })
     if others:
         findings.append("除 SSH 外还有其他服务在监听：" + "、".join(map(str, others)))

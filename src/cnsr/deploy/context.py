@@ -174,7 +174,7 @@ def default_deps() -> Deps:
 class DeployContext:
     """One run of the pipeline. The steps read and update ``node``; ``save`` stores it in KV.
 
-    The fields after ``agent`` carry results from one step to a later one.
+    The fields after ``app_ports`` carry results from one step to a later one.
     """
 
     req: AddRequest
@@ -187,6 +187,7 @@ class DeployContext:
     meta: ControlMeta
     key: AgentKey
     agent: str | None
+    app_ports: tuple[tuple[int, str], ...]  # (port, protocol) pairs the node's service listens on
     lightsail: Lightsail | None = None
     deployed: bool = False  # the node had a finished deployment before this run, so it is in use
     new_instance: bool = False  # step_ip created the Lightsail instance in this run (rerun included)

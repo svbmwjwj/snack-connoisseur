@@ -75,7 +75,7 @@ class FakeLightsail:
         self.calls.append(("instance_ipv6", name))
         return AWS_IPV6
 
-    def set_firewall(self, name: str) -> None:
+    def set_firewall(self, name: str, app_ports: tuple[tuple[int, str], ...]) -> None:
         self.calls.append(("set_firewall", name))
 
     def pick_blueprint(self) -> str:

@@ -10,6 +10,7 @@ from botocore import exceptions as boto_exc
 from cnsr.aws import lightsail
 from cnsr.aws.lightsail import KeyConflict, Lightsail, LightsailError
 from cnsr.errors import CnsrError
+from cnsr.server.xray import PORTS
 from key_samples import ED, ED_FINGERPRINT, RSA, RSA_FINGERPRINT
 from lightsail_harness import REGION
 
@@ -289,7 +290,7 @@ def test_instance_ipv6_is_the_first_address_or_none(aws, fields, expected):
 
 def test_set_firewall_exact_ports(aws):
     aws.ok("put_instance_public_ports", instanceName="jp-1", portInfos=FIREWALL)
-    aws.ls.set_firewall("jp-1")
+    aws.ls.set_firewall("jp-1", PORTS)
 
 
 # --- error mapping
