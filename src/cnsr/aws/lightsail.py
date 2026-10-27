@@ -144,13 +144,16 @@ class Lightsail(StaticIps):
         return None if found is None else _has_tag(found, alias)
 
     def wait_running(self, name: str, timeout: int = 300) -> None:
-        """Poll every ``POLL_SECONDS`` until the instance runs; any state but pending or running fails at once."""
+        """Poll every ``POLL_SECONDS`` until the instance runs; any state but none, pending or running fails at once.
+
+        Lightsail reports ``none`` for the first seconds after ``create_instances``, before ``pending``.
+        """
         deadline = Deadline(timeout, self._clock)
         while True:
             state = self._call("get_instance_state", instanceName=name).get("state", {}).get("name") or "未知"
             if state == "running":
                 return
-            if state != "pending":
+            if state not in ("none", "pending"):
                 raise CnsrError(f"实例 {name} 的状态是 {state}，不是运行中，无法继续。")
             if deadline.passed():
                 raise CnsrError(f"等了 {timeout} 秒，实例 {name} 还没有进入运行状态，请稍后在 Lightsail 控制台查看。")

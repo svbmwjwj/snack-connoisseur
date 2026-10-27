@@ -201,6 +201,13 @@ def test_wait_running_polls_every_five_seconds(aws):
     assert aws.sleeps == [5, 5]
 
 
+def test_wait_running_waits_through_the_none_state_right_after_create(aws):
+    for state in ("none", "pending", "running"):
+        aws.ok("get_instance_state", {"state": {"code": 0, "name": state}}, instanceName="jp-1")
+    aws.ls.wait_running("jp-1")
+    assert aws.sleeps == [5, 5]
+
+
 def test_wait_running_gives_up_after_the_timeout(aws):
     for _ in range(3):
         aws.ok("get_instance_state", {"state": {"code": 0, "name": "pending"}}, instanceName="jp-1")
