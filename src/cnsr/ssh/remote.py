@@ -126,6 +126,7 @@ SCRIPT_TIMEOUTS = {
     "harden-revert.sh": 120,
     "install-docker.sh": 600,
     "validate-candidates.sh": 420,
+    "reality-candidates.sh": 600,  # pulls the Xray image on a new node, then up to 10 s per candidate
     "verify-reality.sh": 300,
 }
 

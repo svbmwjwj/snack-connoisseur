@@ -124,13 +124,19 @@ def step_register(ctx: DeployContext) -> None:
 def _identity(ctx: DeployContext, remote: Remote, current: str | None) -> tuple[XrayInfo, str]:
     """The node's identity and private key: read from its config, or new when it has none.
 
-    The public key of an existing config is computed here from its private key.
+    The public key of an existing config is computed here from its private key. When
+    ``step_sni`` chose a new SNI for a node that already has a config, the rest is kept.
     """
     if current is not None:
         found = read_identity(current)
-        ctx.deps.ui.detail("沿用节点上已有的 UUID、密钥、shortId 和 SNI。")
         public_key = derive_public_key(found["private_key"])
-        info = XrayInfo(found["uuid"], public_key, found["short_id"], found["sni"], found["dest_ip"])
+        if ctx.sni is None:
+            ctx.deps.ui.detail("沿用节点上已有的 UUID、密钥、shortId 和 SNI。")
+            sni, dest_ip = found["sni"], found["dest_ip"]
+        else:
+            ctx.deps.ui.detail("沿用节点上已有的 UUID、密钥和 shortId，换用新选定的 SNI。")
+            sni, dest_ip = ctx.sni.domain, ctx.sni.ip
+        info = XrayInfo(found["uuid"], public_key, found["short_id"], sni, dest_ip)
         runlog.secret(found["private_key"])
         return info, found["private_key"]
     if ctx.sni is None:

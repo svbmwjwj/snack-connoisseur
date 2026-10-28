@@ -25,11 +25,12 @@ def step_scan(ctx: DeployContext) -> None:
 
     The scan must leave this computer directly, never through a proxy. A first deployment
     waits until it does (see ``require_direct``); a node that already runs Xray only misses
-    the refill of its backups.
+    the refill of its backups. A node whose deployment never finished counts as a first one:
+    its SNI may be what stopped it, so ``step_sni`` checks it again against a fresh scan.
     """
     ui = ctx.deps.ui
     ctx.hits = None
-    configured = ctx.exists(CONFIG_PATH)
+    configured = ctx.deployed and ctx.exists(CONFIG_PATH)
     left = len(_backups_on_node(ctx)) if configured else 0
     if configured and left >= REFILL_BELOW:
         ui.detail(f"节点已有 Xray 配置，还有 {left} 个备选 SNI（不少于 {REFILL_BELOW} 个），跳过扫描。")
@@ -62,7 +63,10 @@ def step_scan(ctx: DeployContext) -> None:
 def step_sni(ctx: DeployContext) -> None:
     """Have the node check the candidates itself, then keep the SNI and write the backups.
 
-    A node that already runs Xray keeps its current SNI; only its backups are replaced. New
+    The node first checks each candidate with curl, then tries the ones that pass with a real
+    REALITY handshake (``reality-candidates.sh``, which needs Docker). A node that already runs
+    Xray keeps its current SNI; only its backups are replaced. A node whose deployment never
+    finished keeps its SNI only while it still passes, and otherwise gets a new one. New
     backups end the control plane's "backups used up" mark for the node. An installed SNI
     rotation service is stopped first, as from here on the add changes the node's files.
     """
@@ -74,9 +78,15 @@ def step_sni(ctx: DeployContext) -> None:
     remote = ctx.remote()
     args = [value for hit in ctx.hits for value in (hit.domain, hit.ip)]
     ui.detail(f"交给节点验证的候选：{'、'.join(f'{hit.domain}（{hit.ip}）' for hit in ctx.hits)}")
-    passed = parse_validation(remote.run_script("validate-candidates.sh", args))
-    ui.detail(f"节点验证了 {len(ctx.hits)} 个候选，通过 {len(passed)} 个。")
+    tls = parse_validation(remote.run_script("validate-candidates.sh", args))
+    passed = _borrowable(ctx, tls) if tls else []
+    ui.detail(f"节点验证了 {len(ctx.hits)} 个候选：TLS 检查通过 {len(tls)} 个，REALITY 握手通过 {len(passed)} 个。")
     config = ctx.read(CONFIG_PATH)
+    if config is not None and not ctx.deployed:
+        identity = read_identity(config)
+        if not any(cand.domain == identity["sni"] and cand.ip == identity["dest_ip"] for cand in passed):
+            ui.warn(f"节点还没有部署完成，它的 SNI {identity['sni']} 这次没有通过验证，改选新的 SNI。")
+            config = None
     if config is None:
         chosen, backups = choose(passed, MAX_BACKUPS)
         ctx.sni = chosen
@@ -149,6 +159,16 @@ def _route_text(seen: Egress, network: str) -> str:
         f"发往节点所在网段 {network} 的流量走了代理：节点看到你从 {seen.node} 连过来，"
         f"而你直连时的出口是 {seen.domestic}"
     )
+
+
+def _borrowable(ctx: DeployContext, cands: list[Candidate]) -> list[Candidate]:
+    """The candidates a REALITY server on the node really completes a handshake with, in order."""
+    remote = ctx.remote()
+    ctx.deps.ui.detail("安装 Docker（已装好就跳过），再用 Xray 实际试一遍每个候选的 REALITY 握手。")
+    remote.run_script("install-docker.sh", [])
+    output = remote.run_script("reality-candidates.sh", [value for cand in cands for value in (cand.domain, cand.ip)])
+    ok = {(fields[0], fields[1]) for fields in map(str.split, output.splitlines()) if len(fields) == 2}
+    return [cand for cand in cands if (cand.domain, cand.ip) in ok]
 
 
 def _backups_on_node(ctx: DeployContext) -> list[Candidate]:

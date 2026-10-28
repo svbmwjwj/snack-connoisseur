@@ -80,6 +80,7 @@ class FakeServer:
         self.sshd_root: str | None = None  # what `sshd -T -C user=root,...` shows when it differs
         self.timer, self.timer_stop_fails = "unloaded", False  # the transient revert timer, as in harden_fakes
         self.latency: dict[str, int] = {}  # domain -> ms; a domain missing here fails validation
+        self.reality_fails: set[str] = set()  # domains a REALITY server cannot borrow (reality-candidates.sh)
         self.generated: list[str] = []  # private keys made by `xray x25519`
         self.verified: list[tuple[list[str], str, str]] = []  # verify-reality.sh: args, values file, its mode
         self.client_ip: Callable[[], str | None] = lambda: "203.0.113.5"  # SSH_CLIENT's address; None: unset
@@ -131,6 +132,9 @@ class FakeServer:
         if name == "validate-candidates.sh":
             pairs = zip(args[::2], args[1::2])
             return "".join(f"{d} {ip} {self.latency[d]}\n" for d, ip in pairs if d in self.latency)
+        if name == "reality-candidates.sh":
+            pairs = zip(args[::2], args[1::2])
+            return "".join(f"{d} {ip}\n" for d, ip in pairs if d not in self.reality_fails)
         if name == "harden-stage.sh":
             self.sshd = f"port 22\nport {args[0]}\n" + SSHD_CLEAN
         if name == "harden-cut.sh":

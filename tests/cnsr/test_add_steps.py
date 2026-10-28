@@ -162,6 +162,52 @@ def test_new_node_takes_fastest_candidate_and_keeps_every_other_one(fake_deps):
     assert [b.domain for b in backups] == [f"site{i}.example.com" for i in range(1, 12)]
 
 
+def test_candidates_a_reality_server_cannot_borrow_are_dropped(fake_deps):
+    fake_deps.server.reality_fails = {"site0.example.com", "site2.example.com"}
+    assert run_add(fake_deps, aws="jp") == 0
+    assert read_identity(fake_deps.server.files[CONFIG_PATH])["sni"] == "site1.example.com"
+    backups = [b.domain for b in parse_backups(fake_deps.server.files[BACKUPS_PATH])]
+    assert "site0.example.com" not in backups and "site2.example.com" not in backups
+    # The check runs the pinned Xray image, so Docker comes first.
+    what = fake_deps.server.what()
+    assert what.index("validate-candidates.sh") < what.index("install-docker.sh") < what.index("reality-candidates.sh")
+
+
+def test_no_candidate_passing_the_reality_check_stops(fake_deps):
+    fake_deps.server.reality_fails = set(fake_deps.server.latency)
+    assert run_add(fake_deps, aws="jp") == 1
+    assert CONFIG_PATH not in fake_deps.server.files
+
+
+def test_an_unfinished_node_whose_sni_no_longer_passes_picks_another(fake_deps):
+    fake_deps.server.fail_on["verify-reality.sh"] = CnsrError("握手验证失败")
+    fake_deps.terminal.inputs = list(VPS_ANSWERS)
+    assert run_add(fake_deps, ip=VPS_IP) == 1
+    first = read_identity(fake_deps.server.files[CONFIG_PATH])
+    assert first["sni"] == "site0.example.com" and fake_deps.node().line is None
+
+    del fake_deps.server.fail_on["verify-reality.sh"]
+    fake_deps.server.reality_fails = {"site0.example.com"}
+    assert run_add(fake_deps) == 0
+    now = read_identity(fake_deps.server.files[CONFIG_PATH])
+    assert now["sni"] == "site1.example.com" and now["dest_ip"] != first["dest_ip"]
+    assert (now["uuid"], now["private_key"], now["short_id"]) == (first["uuid"], first["private_key"], first["short_id"])
+    assert len(fake_deps.calls["scan"]) == 2  # not in use yet: scanned like a first deployment
+    assert fake_deps.node().xray.sni == "site1.example.com"
+    assert "site1.example.com" not in [b.domain for b in parse_backups(fake_deps.server.files[BACKUPS_PATH])]
+
+
+def test_an_unfinished_node_keeps_an_sni_that_still_passes(fake_deps):
+    fake_deps.server.fail_on["verify-reality.sh"] = CnsrError("握手验证失败")
+    fake_deps.terminal.inputs = list(VPS_ANSWERS)
+    assert run_add(fake_deps, ip=VPS_IP) == 1
+    first = fake_deps.server.files[CONFIG_PATH]
+
+    del fake_deps.server.fail_on["verify-reality.sh"]
+    assert run_add(fake_deps) == 0
+    assert fake_deps.server.files[CONFIG_PATH] == first
+
+
 def test_backups_are_capped(fake_deps):
     fake_deps.hits = [Hit(f"203.0.113.{i}", f"many{i}.example.com", "Example CA", False) for i in range(40)]
     fake_deps.server.latency = {f"many{i}.example.com": 10 + i for i in range(40)}
