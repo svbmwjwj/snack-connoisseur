@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from deploy_fakes import AGENT, VPS_IP, FakeServer, agent_key, run_add, run_rm
+from deploy_fakes import AGENT, VPS_IP, FakeServer, agent_key, run_up, run_rm
 from rm_harness import VPS_ANSWERS
 
 from cnsr import runlog
@@ -39,12 +39,12 @@ def sensitive_values(fakes, servers: list[FakeServer]) -> dict[str, str]:
 def test_a_full_run_log_holds_no_secret(fake_deps, tmp_path):
     fake_deps.agents[AGENT].append(agent_key("vps-1"))
     with runlog.started(tmp_path / "logs", "add", None, ["session"]) as run:
-        assert run_add(fake_deps, "jp-1", aws="jp") == 0
+        assert run_up(fake_deps, "jp-1", aws="jp") == 0
         aws_server, vendor_server = fake_deps.server, FakeServer()  # a new server, so it makes its own keys
         vendor_server.latency, vendor_server.client_ip = aws_server.latency, aws_server.client_ip
         fake_deps.server = vendor_server
         fake_deps.terminal.inputs = list(VPS_ANSWERS)
-        assert run_add(fake_deps, "vps-1", ip=VPS_IP) == 0
+        assert run_up(fake_deps, "vps-1", ip=VPS_IP) == 0
         sensitive = sensitive_values(fake_deps, [aws_server, vendor_server])
         fake_deps.terminal.inputs = ["jp-1"]
         assert run_rm(fake_deps, "jp-1") == 0

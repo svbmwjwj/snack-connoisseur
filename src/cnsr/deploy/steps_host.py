@@ -135,7 +135,8 @@ def step_connect(ctx: DeployContext) -> None:
 def step_harden(ctx: DeployContext) -> None:
     """AWS: check the fixed baseline, then the cloud firewall. A vendor server reached as root:
     move SSH to admin on a random port. One cnsr hardened before: finish what an earlier run
-    left undone. A vendor server reached as another user: nothing."""
+    left undone, and open the ports of the features chosen now. A vendor server reached as
+    another user: nothing."""
     if ctx.req.source == "aws":
         _aws_baseline(ctx)
     elif ctx.node.ssh.user == "root":
@@ -143,6 +144,7 @@ def step_harden(ctx: DeployContext) -> None:
     elif ctx.node.ssh.user == ADMIN and ctx.exists(DROP_IN):
         if not _hardener(ctx).resume(ctx.node.ssh.port):
             ctx.deps.ui.detail("这台服务器已经由 cnsr 加固过，设置无误，跳过加固。")
+        _open_app_ports(ctx)
     else:
         ctx.deps.ui.detail(f"登录用户是 {ctx.node.ssh.user}，不是 root，说明这台服务器已经配置过，跳过加固。")
 
@@ -294,8 +296,19 @@ def _aws_baseline(ctx: DeployContext) -> None:
     if problems:
         raise CnsrError("实例的 SSH 设置不符合基线，已停止：" + "；".join(problems))
     ctx.lightsail.set_firewall(ctx.node.instance_name, ctx.app_ports)
-    *first, last = [22, *sorted({port for port, _ in ctx.app_ports})]
-    ctx.deps.ui.detail(f"已开启自动安全更新；Lightsail 防火墙只放行 {'、'.join(map(str, first))} 和 {last}。")
+    *first, last = map(str, [22, *sorted({port for port, _ in ctx.app_ports})])
+    opened = f"{'、'.join(first)} 和 {last}" if first else last
+    ctx.deps.ui.detail(f"已开启自动安全更新；Lightsail 防火墙只放行 {opened}。")
+
+
+def _open_app_ports(ctx: DeployContext) -> None:
+    """Open the chosen features' ports in the ufw of a server cnsr hardened (a feature may be new).
+
+    ``ufw allow`` changes nothing for a rule that is already there.
+    """
+    remote = ctx.remote()
+    for number, protocol in ctx.app_ports:
+        remote.run(["ufw", "allow", f"{number}/{protocol}"], sudo=True)
 
 
 def _hardener(ctx: DeployContext) -> Hardener:
@@ -318,7 +331,7 @@ def _harden_vendor(ctx: DeployContext) -> None:
     def keep(user: str, port: int) -> None:
         node.ssh.user, node.ssh.port = user, port
 
-    keep(*_hardener(ctx).run(ctx.key.line, _listening_ports(ctx.facts), on_cut=keep))
+    keep(*_hardener(ctx).run(ctx.key.line, _listening_ports(ctx.facts), app_ports=ctx.app_ports, on_cut=keep))
     try:
         write_alias(ctx)
     except CnsrError as exc:
@@ -345,7 +358,7 @@ def _save_new_login(ctx: DeployContext) -> None:
             if attempt == SAVE_ATTEMPTS:
                 raise CnsrError(
                     f"没能把新的登录方式写入控制端（试了 {SAVE_ATTEMPTS} 次）：{exc}\n{_new_login(ctx)}"
-                    f"SSH 别名 {alias} 已经改好；重跑 cnsr add {alias} 时会按别名登录并补写。"
+                    f"SSH 别名 {alias} 已经改好；重跑 cnsr up {alias} 时会按别名登录并补写。"
                 ) from exc
             ctx.deps.sleep(SAVE_RETRY_SECONDS)
 

@@ -18,7 +18,7 @@ def test_rm_shows_its_stages(fake_deps):
     assert "cnsr rm jp-1" in screen
     assert "[1/4] 删除 AWS 实例和静态 IP" in screen and "[4/4] 删除控制端登记：完成" in screen
     assert "删除 AWS 上的静态 IP 和实例" not in screen and "删除 AWS 上的静态 IP 和实例" in fake_deps.terminal.log
-    assert screen.rstrip().endswith("节点 jp-1 已删除。")
+    assert screen.rstrip().endswith("服务器 jp-1 已删除。")
 
 
 def test_rm_of_a_vendor_node_has_three_stages(fake_deps):

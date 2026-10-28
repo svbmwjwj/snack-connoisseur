@@ -13,6 +13,7 @@ from harden_harness import NODE, harden_tool, server  # noqa: F401  (fixtures)
 from key_samples import ED as PUB
 
 from cnsr.server.harden import stage_args
+from cnsr.server.xray import PORTS as XRAY_PORTS
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="bash is not available on Windows")
 
@@ -29,13 +30,13 @@ def fresh(server):
 
 
 def test_a_stage_remembers_the_port_it_opens(fresh):
-    assert fresh.run("harden-stage.sh", *stage_args(PORT, PUB)).status == 0
+    assert fresh.run("harden-stage.sh", *stage_args(PORT, PUB, XRAY_PORTS)).status == 0
     assert fresh.read(PORTS) == f"{PORT}\n"
 
 
 def test_a_second_stage_closes_the_port_the_first_one_opened(fresh):
     fresh.write(PORTS, f"{OLD}\n")
-    out = fresh.run("harden-stage.sh", *stage_args(PORT, PUB))
+    out = fresh.run("harden-stage.sh", *stage_args(PORT, PUB, XRAY_PORTS))
     assert out.status == 0
     assert out.calls.index(f"ufw allow {PORT}/tcp") < out.calls.index(f"ufw delete allow {OLD}/tcp")
     assert fresh.read(PORTS) == f"{PORT}\n"

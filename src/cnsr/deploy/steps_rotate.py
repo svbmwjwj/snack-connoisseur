@@ -3,7 +3,7 @@
 It runs last, once the node is registered with its line and token: the service asks the
 control plane for work as soon as it starts, and stops for good when its token is refused.
 
-An installed service is stopped before an add changes the node (``stop_rotation``, called first
+An installed service is stopped before a run of cnsr up changes the node (``stop_rotation``, called first
 in step 5), so it cannot rotate while cnsr rewrites backups.json and config.json or runs
 verify-reality.sh. Its TERM handler only undoes a switch it had not finished; one that even
 that could not undo is settled here before the service starts again (``_settle_switch``).
@@ -33,7 +33,7 @@ RESTART_MARKER = f"{NODE_DIR}/.rotate-restart-pending"
 # Left by the service: stopped after its token was refused, rotate-failed holds back retries.
 # Every add removes both, so a node that is added again polls again at once.
 # unauthorized-since starts a spell of refused tokens, last-version is the version of the last
-# line the service wrote: neither may outlive the add (a re-added node starts over at version 1).
+# line the service wrote: neither may outlive the run (a node deployed again starts over at version 1).
 HOLD_MARKERS = (
     f"{NODE_DIR}/stopped",
     f"{NODE_DIR}/rotate-failed",
@@ -94,7 +94,7 @@ def resume_rotation(ctx: DeployContext) -> None:
         reason = "已中断" if isinstance(exc, KeyboardInterrupt) else str(exc)
         ctx.deps.ui.warn(
             f"换 SNI 服务没能重新启动（{reason}），这台节点暂时不会自动换 SNI；"
-            f"修好问题后重跑 cnsr add {ctx.node.alias} 即可恢复。"
+            f"修好问题后重跑 cnsr up {ctx.node.alias} 即可恢复。"
         )
         if not isinstance(exc, Exception):
             raise

@@ -1,4 +1,4 @@
-"""Test doubles for ``cnsr add``: the server, Lightsail, the terminal and the wiring into ``Deps``.
+"""Test doubles for ``cnsr up``: the server, Lightsail, the terminal and the wiring into ``Deps``.
 
 The ``fake_deps`` fixture in ``conftest.py`` builds ``DeployFakes`` with a Cloudflare account
 (control plane, KV and the zone's DNS records) made of ``FakeCloudflare`` and ``FakeDnsZone``.
@@ -25,7 +25,8 @@ from terminal_fakes import Terminal
 from cnsr import localconf
 from cnsr.cloudflare.api import CloudflareClient
 from cnsr.cloudflare.control import ProbeResult
-from cnsr.commands import add, rm
+from cnsr.commands import rm, up
+from cnsr.features import ALL as ALL_FEATURES
 from cnsr.deploy.context import Deps
 from cnsr.errors import CnsrError
 from cnsr.scan.egress import Egress
@@ -81,6 +82,8 @@ class FakeServer:
         self.timer, self.timer_stop_fails = "unloaded", False  # the transient revert timer, as in harden_fakes
         self.latency: dict[str, int] = {}  # domain -> ms; a domain missing here fails validation
         self.reality_fails: set[str] = set()  # domains a REALITY server cannot borrow (reality-candidates.sh)
+        self.ufw_allowed: set[str] = set()  # rules `ufw allow` added, such as "443/tcp"
+        self.script_args: dict[str, list[str]] = {}  # the last arguments each script ran with
         self.generated: list[str] = []  # private keys made by `xray x25519`
         self.verified: list[tuple[list[str], str, str]] = []  # verify-reality.sh: args, values file, its mode
         self.client_ip: Callable[[], str | None] = lambda: "203.0.113.5"  # SSH_CLIENT's address; None: unset
@@ -125,6 +128,7 @@ class FakeServer:
             raise error
 
     def script(self, name: str, args: list[str]) -> str:
+        self.script_args[name] = args
         if name == "preflight.sh":
             return self.preflight
         if name == "baseline-check.sh":
@@ -163,6 +167,9 @@ class FakeServer:
         if head == ["sh", "-c"] and "is-active" in command[2]:
             return "active\n" if self.timer == "active" else "inactive\n"
         if command == ["true"] or command[0] in ("chpasswd", "systemctl"):
+            return ""
+        if head == ["ufw", "allow"]:
+            self.ufw_allowed.add(command[2])
             return ""
         if head == ["sh", "-c"]:  # DeployContext.exists
             return "yes\n" if command[-1] in self.files or command[-1] in self.dirs else "no\n"
@@ -259,7 +266,7 @@ class FakeNodeRemote:
 
 
 class DeployFakes:
-    """Everything ``cnsr add`` talks to, wired into ``deps``; Cloudflare comes from the fixture.
+    """Everything ``cnsr up`` talks to, wired into ``deps``; Cloudflare comes from the fixture.
 
     The attributes are read at call time, so a test changes behaviour by setting them.
     ``secrets.env`` starts with a Cloudflare token and zone.
@@ -413,17 +420,21 @@ class DeployFakes:
         self.server.key_installed = True
 
 
-def run_add(
+def run_up(
     fakes: DeployFakes,
     alias: str | None = "jp-1",
     *,
     aws: str | None = None,
     ip: str | None = None,
     static_ip: str | None = None,
+    features: list[str] | None = ALL_FEATURES,
 ) -> int:
-    """Run ``cnsr add`` as the command line would, against ``fakes``."""
-    ns = argparse.Namespace(command="add", alias=alias, aws=aws, ip=ip, static_ip=static_ip)
-    return add.run(ns, fakes.deps)
+    """Run ``cnsr up`` as the command line would, against ``fakes``.
+
+    ``features`` stand in for the feature menu's answer; None shows the menu.
+    """
+    ns = argparse.Namespace(command="up", alias=alias, aws=aws, ip=ip, static_ip=static_ip, features=features)
+    return up.run(ns, fakes.deps)
 
 
 def run_rm(fakes: DeployFakes, alias: str = "jp-1") -> int:

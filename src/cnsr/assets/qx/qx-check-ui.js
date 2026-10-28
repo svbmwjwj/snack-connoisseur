@@ -34,7 +34,7 @@ const MESSAGES = {
   none: (alias) => `没有拿到节点 ${alias} 的测速结果，请确认它在当前策略组里后再试。`,
   update: (alias) => `节点 ${alias}：服务器已有新配置，请长按风车更新外部资源后再检测。`,
   reported: (alias) => `节点 ${alias} 的 SNI 很可能被封，已通知服务器更换。换好后会通知你更新。`,
-  exhausted: (alias) => `节点 ${alias} 的备选 SNI 已经用完，或者都没通过换之前的复验。请在电脑上运行 cnsr add ${alias} 重新扫描。`,
+  exhausted: (alias) => `节点 ${alias} 的备选 SNI 已经用完，或者都没通过换之前的复验。请在电脑上运行 cnsr up ${alias} 重新扫描。`,
   paused: (alias) => `节点 ${alias} 的 SNI 刚被服务器换过，正在等新配置测通。请先长按风车更新外部资源，再长按检测一次。`,
   reportLost: (alias) => `节点 ${alias} 握手失败，但没能通知服务器，请稍后再检测一次。`,
 };

@@ -37,7 +37,7 @@ const MESSAGES = {
     "可以长按节点运行“cnsr 检测”确认。",
   outdated: (alias) => `节点 ${alias} 有新配置，请长按风车更新外部资源。`,
   updated: (alias) => `节点 ${alias} 的 SNI 可能被封，服务器已换用新 SNI，点此更新`,
-  exhausted: (alias) => `节点 ${alias} 的备选 SNI 已经用完，或者都没通过换之前的复验。请在电脑上运行 cnsr add ${alias} 重新扫描`,
+  exhausted: (alias) => `节点 ${alias} 的备选 SNI 已经用完，或者都没通过换之前的复验。请在电脑上运行 cnsr up ${alias} 重新扫描`,
   pause_expired: (alias) =>
     `节点 ${alias} 换 SNI 后 24 小时内没有设备测通，新 SNI 可能也被封了。` +
     "如果你已经更新过配置仍然连不上，请在策略页长按这个节点，选“cnsr 检测”",

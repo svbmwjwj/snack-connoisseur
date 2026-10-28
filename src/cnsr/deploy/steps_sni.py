@@ -68,7 +68,7 @@ def step_sni(ctx: DeployContext) -> None:
     Xray keeps its current SNI; only its backups are replaced. A node whose deployment never
     finished keeps its SNI only while it still passes, and otherwise gets a new one. New
     backups end the control plane's "backups used up" mark for the node. An installed SNI
-    rotation service is stopped first, as from here on the add changes the node's files.
+    rotation service is stopped first, as from here on the run changes the node's files.
     """
     ui = ctx.deps.ui
     stop_rotation(ctx)

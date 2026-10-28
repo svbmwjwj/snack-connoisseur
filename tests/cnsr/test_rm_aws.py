@@ -7,7 +7,7 @@ the record names it and it is free or attached to the node's instance, or when i
 
 from __future__ import annotations
 
-from deploy_fakes import run_add
+from deploy_fakes import run_up
 from rm_harness import deploy_aws, entry_deleted, remove
 
 from cnsr import localconf
@@ -322,7 +322,7 @@ def test_add_that_stops_at_a_strangers_static_ip_leaves_it_alone_for_rm(fake_dep
     fake_deps.lightsail.ips["jp-1-ip"] = "web"  # the user's own, attached to their instance "web"
     fake_deps.lightsail.delete_instance_errors = ["删除实例 jp-1 失败"]  # add's own cleanup leaves it to rm
 
-    assert run_add(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp") == 1
     assert "绑在实例 web 上" in fake_deps.terminal.text
     assert names_in_record(fake_deps) == ("jp-1", None)  # the name is recorded only once the IP is cnsr's
 

@@ -263,7 +263,7 @@ def tls_server_no_alpn(tls_server_factory) -> TlsServer:
 
 @pytest.fixture
 def fake_deps(tmp_path, mock_cf, fake_dns) -> Iterator[DeployFakes]:
-    """Fakes for ``cnsr add``: one Cloudflare account (control plane, KV and the zone's DNS records),
+    """Fakes for ``cnsr up``: one Cloudflare account (control plane, KV and the zone's DNS records),
     one server, Lightsail, the agent and the local network checks. See ``fakes.DeployFakes``."""
 
     def route(request: httpx.Request) -> httpx.Response:

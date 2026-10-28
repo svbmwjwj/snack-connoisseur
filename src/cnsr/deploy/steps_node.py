@@ -280,7 +280,7 @@ def _wait_for_public_dns(ctx: DeployContext) -> None:
             raise CnsrError(
                 f"等了 {PUBLIC_DNS_WAIT} 秒，公共 DNS 仍没有返回 {node.domain} 的预期地址"
                 "（也可能是这台电脑的 DNS 查询没有成功）。节点本身已经部署好，"
-                f"稍后重跑 cnsr add {node.alias} 即可完成登记。"
+                f"稍后重跑 cnsr up {node.alias} 即可完成登记。"
             )
         ctx.deps.sleep(deadline.step(RETRY_SECONDS))
 

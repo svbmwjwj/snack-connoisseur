@@ -23,7 +23,7 @@ def test_no_args_prints_help(capsys):
 def test_help_flag_prints_help(capsys):
     assert main(["-h"]) == 0
     out = capsys.readouterr().out
-    assert "add [别名]" in out and "--aws <区域>" in out and "--ip <IP>" in out and "rm <别名>" in out
+    assert "up [别名]" in out and "--aws <区域>" in out and "--ip <IP>" in out and "rm [别名]" in out
 
 
 def test_version(capsys):
@@ -51,20 +51,19 @@ def test_the_version_without_installed_metadata():
     assert cnsr._installed_version(missing) == "0+unknown"
 
 
-def test_parse_add_aws():
-    ns = parse_args(["add", "jp-1", "--aws", "jp"])
-    assert (ns.command, ns.alias, ns.aws, ns.ip, ns.static_ip) == ("add", "jp-1", "jp", None, None)
+def test_parse_up_aws():
+    ns = parse_args(["up", "jp-1", "--aws", "jp"])
+    assert (ns.command, ns.alias, ns.aws, ns.ip, ns.static_ip) == ("up", "jp-1", "jp", None, None)
 
 
-def test_parse_add_aws_with_a_static_ip():
-    ns = parse_args(["add", "sg-1", "--aws", "sg", "--static-ip", "203.0.113.50"])
+def test_parse_up_aws_with_a_static_ip():
+    ns = parse_args(["up", "sg-1", "--aws", "sg", "--static-ip", "203.0.113.50"])
     assert (ns.aws, ns.static_ip) == ("sg", "203.0.113.50")
 
 
 @pytest.mark.parametrize("argv", [
-    ["add", "x", "--aws", "jp", "--ip", "192.0.2.1"],
-    ["add", "x", "--aws", "eu"],
-    ["rm"],
+    ["up", "x", "--aws", "jp", "--ip", "192.0.2.1"],
+    ["up", "x", "--aws", "eu"],
 ])
 def test_parse_rejects(argv):
     with pytest.raises(SystemExit):
@@ -82,11 +81,11 @@ def config_home(monkeypatch, tmp_path):
 
 @pytest.fixture
 def commands(monkeypatch):
-    """Install fake cnsr.commands.add / cnsr.commands.rm modules and record their calls."""
+    """Install fake cnsr.commands.up / cnsr.commands.rm modules and record their calls."""
     calls = {}
     package = types.ModuleType("cnsr.commands")
     package.__path__ = []
-    for name in ("add", "rm", "listing"):
+    for name in ("up", "rm", "listing"):
         module = types.ModuleType(f"cnsr.commands.{name}")
 
         def run(ns, name=name):
@@ -100,16 +99,16 @@ def commands(monkeypatch):
     return calls
 
 
-@pytest.mark.parametrize("argv", [["rm", "-h"], ["add", "-h"], ["add", "x", "--help"]])
+@pytest.mark.parametrize("argv", [["rm", "-h"], ["up", "-h"], ["up", "x", "--help"]])
 def test_help_flag_after_command(argv, capsys):
     assert main(argv) == 0
     assert capsys.readouterr().out == HELP_TEXT
 
 
-def test_dispatch_add(commands):
-    assert main(["add", "jp-1", "--aws", "jp"]) == 0
-    assert list(commands) == ["add"]
-    assert (commands["add"].alias, commands["add"].aws) == ("jp-1", "jp")
+def test_dispatch_up(commands):
+    assert main(["up", "jp-1", "--aws", "jp"]) == 0
+    assert list(commands) == ["up"]
+    assert (commands["up"].alias, commands["up"].aws) == ("jp-1", "jp")
 
 
 def test_dispatch_rm(commands):
@@ -124,8 +123,8 @@ def test_dispatch_list(commands):
 
 
 def test_dispatch_returns_command_exit_code(monkeypatch, commands):
-    monkeypatch.setattr(sys.modules["cnsr.commands.add"], "run", lambda ns: 7)
-    assert main(["add", "x", "--ip", "192.0.2.1"]) == 7
+    monkeypatch.setattr(sys.modules["cnsr.commands.up"], "run", lambda ns: 7)
+    assert main(["up", "x", "--ip", "192.0.2.1"]) == 7
 
 
 def test_cnsr_error_prints_message_and_returns_1(monkeypatch, commands, capsys):
@@ -143,8 +142,8 @@ def test_keyboard_interrupt_returns_130(monkeypatch, commands, capsys):
     def interrupted(ns):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(sys.modules["cnsr.commands.add"], "run", interrupted)
-    assert main(["add", "x", "--aws", "sg"]) == 130
+    monkeypatch.setattr(sys.modules["cnsr.commands.up"], "run", interrupted)
+    assert main(["up", "x", "--aws", "sg"]) == 130
     assert capsys.readouterr().err == "已中断。修好问题后重跑同一条命令即可继续。\n"
 
 
@@ -164,19 +163,18 @@ def test_a_closed_terminal_is_an_interrupt_that_cleans_up(monkeypatch, commands,
             raise
 
     before = signal.getsignal(signum)
-    monkeypatch.setattr(sys.modules["cnsr.commands.add"], "run", hung_up)
-    assert main(["add", "x", "--aws", "sg"]) == 130
+    monkeypatch.setattr(sys.modules["cnsr.commands.up"], "run", hung_up)
+    assert main(["up", "x", "--aws", "sg"]) == 130
     assert cleaned == [True] and "已中断" in capsys.readouterr().err
     assert signal.getsignal(signum) == before
 
 
 @pytest.mark.parametrize("argv,expected", [
-    (["add", "x", "--aws", "eu"], "jp、sg、us"),
-    (["add", "x", "--aws", "jp", "--ip", "192.0.2.1"], "不能同时使用"),
-    (["add", "x", "--ip", "192.0.2.1", "--aws", "jp"], "不能同时使用"),
-    (["rm"], "缺少"),
+    (["up", "x", "--aws", "eu"], "jp、sg、us"),
+    (["up", "x", "--aws", "jp", "--ip", "192.0.2.1"], "不能同时使用"),
+    (["up", "x", "--ip", "192.0.2.1", "--aws", "jp"], "不能同时使用"),
     (["nope"], "未知命令"),
-    (["add", "x", "--aws"], "不正确"),
+    (["up", "x", "--aws"], "不正确"),
 ])
 def test_usage_errors_are_reported_in_chinese(argv, expected, capsys):
     assert main(argv) == 2
@@ -189,7 +187,7 @@ def test_usage_errors_are_reported_in_chinese(argv, expected, capsys):
 def test_a_forgotten_command_word_is_named_with_the_way_to_write_it(argv, word, capsys):
     assert main(argv) == 2
     err = capsys.readouterr().err
-    assert f"未知命令“{word}”" in err and "cnsr add <别名>" in err and "cnsr rm <别名>" in err
+    assert f"未知命令“{word}”" in err and "cnsr up <别名>" in err and "cnsr rm <别名>" in err
 
 
 def test_windows_forces_utf8_output(monkeypatch):
@@ -226,15 +224,15 @@ def _fail(ns):
     (_interrupt, "interrupted", 130),
 ])
 def test_the_log_path_is_the_last_line(command, outcome, code, monkeypatch, commands, capsys, config_home):
-    monkeypatch.setattr(sys.modules["cnsr.commands.add"], "run", command)
-    assert main(["add", "jp-1", "--aws", "jp"]) == code
+    monkeypatch.setattr(sys.modules["cnsr.commands.up"], "run", command)
+    assert main(["up", "jp-1", "--aws", "jp"]) == code
     captured = capsys.readouterr()
     last = captured.out.splitlines()[-1]
     assert last.startswith("日志：")
     path = Path(last.removeprefix("日志："))
     assert path.is_absolute() and path.is_file() and path.parent == config_home / "logs"
     text = path.read_text(encoding="utf-8")
-    assert "jp-1" in path.name and "['add', 'jp-1', '--aws', 'jp']" in text
+    assert "jp-1" in path.name and "['up', 'jp-1', '--aws', 'jp']" in text
     if outcome == "interrupted":
         assert "已中断" in text and captured.err == "已中断。修好问题后重跑同一条命令即可继续。\n"
     else:
@@ -250,7 +248,7 @@ def test_the_log_belongs_to_the_command_that_ran(monkeypatch, commands, capsys, 
     assert "命令 rm" in log.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("argv", [["-h"], [], ["nope"], ["--version"], ["add", "-h"], ["rm"]])
+@pytest.mark.parametrize("argv", [["-h"], [], ["nope"], ["--version"], ["up", "-h"]])
 def test_help_and_usage_errors_write_no_log(argv, commands, config_home):
     main(argv)
     assert not (config_home / "logs").exists()
@@ -259,20 +257,20 @@ def test_help_and_usage_errors_write_no_log(argv, commands, config_home):
 def test_no_log_line_when_the_log_cannot_be_written(commands, capsys, config_home):
     config_home.mkdir(parents=True)
     (config_home / "logs").write_text("not a directory", encoding="utf-8")
-    assert main(["add", "jp-1", "--aws", "jp"]) == 0
+    assert main(["up", "jp-1", "--aws", "jp"]) == 0
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err.startswith("警告：无法写入运行日志（")
     assert captured.err.count("警告：") == 1 and "无法写日志" not in captured.err
-    assert list(commands) == ["add"]
+    assert list(commands) == ["up"]
 
 
 def test_an_unexpected_error_is_reported_and_still_ends_with_the_log_line(monkeypatch, commands, capsys, config_home):
     def bug(ns):
         raise RuntimeError("something odd")
 
-    monkeypatch.setattr(sys.modules["cnsr.commands.add"], "run", bug)
-    assert main(["add", "jp-1", "--aws", "jp"]) == 1
+    monkeypatch.setattr(sys.modules["cnsr.commands.up"], "run", bug)
+    assert main(["up", "jp-1", "--aws", "jp"]) == 1
     captured = capsys.readouterr()
     assert captured.err == "错误：意外错误（RuntimeError：something odd），详情见日志\n"
     last = captured.out.splitlines()[-1]
@@ -287,7 +285,35 @@ def test_ctrl_c_while_the_log_is_being_set_up_returns_130(monkeypatch, commands,
         raise KeyboardInterrupt
 
     monkeypatch.setattr(cnsr.runlog, "started", interrupted_setup)
-    assert main(["add", "jp-1", "--aws", "jp"]) == 130
+    assert main(["up", "jp-1", "--aws", "jp"]) == 130
     captured = capsys.readouterr()
     assert captured.err == "已中断。修好问题后重跑同一条命令即可继续。\n"
     assert captured.out == "" and list(commands) == []
+
+
+def test_rm_without_an_alias_leaves_it_to_the_command():
+    assert parse_args(["rm"]).alias is None
+
+
+@pytest.mark.parametrize("pick, command", [(0, "up"), (1, "rm"), (2, "listing")])
+def test_no_command_in_a_terminal_opens_the_menu(monkeypatch, commands, pick, command):
+    import cnsr.menu
+
+    asked = []
+
+    def menu(prompt, options):
+        asked.append((prompt, options))
+        return pick
+
+    monkeypatch.setattr(cnsr.menu, "terminal_select", lambda: menu)
+    assert main([]) == 0
+    assert asked == [("要做什么？", ["部署服务器", "删除服务器", "服务器列表"])]
+    assert list(commands) == [command] and commands[command].alias is None
+
+
+def test_no_command_without_a_terminal_prints_help(monkeypatch, capsys):
+    import cnsr.menu
+
+    monkeypatch.setattr(cnsr.menu, "terminal_select", lambda: None)
+    assert main([]) == 0
+    assert capsys.readouterr().out == HELP_TEXT

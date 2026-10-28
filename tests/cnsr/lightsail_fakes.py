@@ -1,4 +1,4 @@
-"""A fake Lightsail region for the ``cnsr add`` and ``cnsr rm`` tests."""
+"""A fake Lightsail region for the ``cnsr up`` and ``cnsr rm`` tests."""
 
 from __future__ import annotations
 
@@ -77,6 +77,7 @@ class FakeLightsail:
 
     def set_firewall(self, name: str, app_ports: tuple[tuple[int, str], ...]) -> None:
         self.calls.append(("set_firewall", name))
+        self.app_ports = app_ports
 
     def pick_blueprint(self) -> str:
         self.calls.append(("pick_blueprint",))

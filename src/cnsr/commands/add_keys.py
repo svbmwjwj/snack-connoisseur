@@ -1,4 +1,4 @@
-"""The SSH agent and key ``cnsr add`` deploys with. cnsr only ever handles public keys.
+"""The SSH agent and key ``cnsr up`` deploys with. cnsr only ever handles public keys.
 
 Without a fitting agent key, ssh-keygen can make one (``add_keygen``).
 """

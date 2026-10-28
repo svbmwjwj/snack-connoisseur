@@ -1,4 +1,4 @@
-"""cnsr-rotate.sh check: one look at the control plane for cnsr add, changing nothing."""
+"""cnsr-rotate.sh check: one look at the control plane for cnsr up, changing nothing."""
 
 from __future__ import annotations
 

@@ -85,7 +85,7 @@ test("test_exhausted_backups_are_announced_once", async () => {
   assert.deepEqual(statusMinutes(runs).filter((m) => m > 8 && m < 60), []);
   const notes = allNotifications(runs);
   assert.deepEqual(minutesOf(notes), [6, 8]);
-  assert.equal(notes[1].body, "节点 a1 的备选 SNI 已经用完，或者都没通过换之前的复验。请在电脑上运行 cnsr add a1 重新扫描");
+  assert.equal(notes[1].body, "节点 a1 的备选 SNI 已经用完，或者都没通过换之前的复验。请在电脑上运行 cnsr up a1 重新扫描");
 });
 
 test("test_an_expired_pause_is_announced_once", async () => {
@@ -113,7 +113,7 @@ test("test_a_turned_down_report_is_handled_per_reason", async () => {
   const cases = {
     exhausted: {
       flags: (alias, minute) => ({ exhausted: alias === "a1" && minute >= 7 }),
-      notes: [[6, "节点 a1 的备选 SNI 已经用完，或者都没通过换之前的复验。请在电脑上运行 cnsr add a1 重新扫描"]],
+      notes: [[6, "节点 a1 的备选 SNI 已经用完，或者都没通过换之前的复验。请在电脑上运行 cnsr up a1 重新扫描"]],
       statusAfter: [],
     },
     // Paused: the server already rotated and waits for a pass; keep the hourly check going.

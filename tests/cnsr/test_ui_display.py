@@ -154,7 +154,7 @@ def test_stage_calls_reach_the_display_and_the_log(caplog):
     caplog.set_level(logging.INFO, logger="cnsr")
     display = RecordingDisplay()
     ui = Ui(out=io.StringIO(), interactive=False, display=display)
-    ui.begin("cnsr add jp-1", ["甲", "乙"])
+    ui.begin("cnsr up jp-1", ["甲", "乙"])
     ui.stage(2)
     ui.stage_count(1, 3)
     ui.busy("检查")
@@ -163,8 +163,8 @@ def test_stage_calls_reach_the_display_and_the_log(caplog):
         pass
     ui.end("failed")
     assert display.calls == [
-        ("begin", "cnsr add jp-1", ["甲", "乙"]), ("start", 2), ("count", 1, 3), ("busy", "检查"),
+        ("begin", "cnsr up jp-1", ["甲", "乙"]), ("start", 2), ("count", 1, 3), ("busy", "检查"),
         ("idle",), ("transient", "连接中"), ("paused",), ("resumed",), ("end", "failed"),
     ]
     messages = [m for _, m in ui_records(caplog)]
-    assert messages == ["cnsr add jp-1", "[2/2] 乙", "结束：失败"]
+    assert messages == ["cnsr up jp-1", "[2/2] 乙", "结束：失败"]

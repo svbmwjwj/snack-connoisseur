@@ -15,13 +15,13 @@ from typing import Literal
 import boto3
 from botocore.exceptions import BotoCoreError
 
-from cnsr import localconf, paths
+from cnsr import features, localconf, paths
 from cnsr.aws.lightsail import REGIONS, Lightsail
 from cnsr.cloudflare import control, dns
 from cnsr.cloudflare.api import CloudflareClient
 from cnsr.cloudflare.control import ProbeResult
 from cnsr.errors import CnsrError
-from cnsr.menu import terminal_select
+from cnsr.menu import terminal_select, terminal_select_many
 from cnsr.progress import terminal_display
 from cnsr.scan import egress, ipv6_reach, tcp_reach
 from cnsr.scan import probe as tls_probe
@@ -42,7 +42,7 @@ _EXISTS = 'if [ -e "$1" ]; then echo yes; else echo no; fi'
 
 @dataclass
 class AddRequest:
-    """Where the node runs and how cnsr logs in to it, as gathered by ``cnsr add``."""
+    """Where the node runs and how cnsr logs in to it, as gathered by ``cnsr up``."""
 
     alias: str
     source: Literal["aws", "vps"]
@@ -50,7 +50,7 @@ class AddRequest:
     ip: str | None
     user: str
     port: int
-    # The address of a static IP the user already has in the region (cnsr add --static-ip).
+    # The address of a static IP the user already has in the region (cnsr up --static-ip).
     static_ip: str | None = None
 
 
@@ -149,7 +149,7 @@ def default_deps() -> Deps:
     home = Path.home()
     ssh_config = paths.ssh_config_path(home)
     return Deps(
-        ui=Ui(select_fn=terminal_select(), display=terminal_display()),
+        ui=Ui(select_fn=terminal_select(), select_many_fn=terminal_select_many(), display=terminal_display()),
         conf_path=paths.config_dir(os.environ, sys.platform, home) / SECRETS_FILE,
         ssh_config=ssh_config,
         pub_dir=paths.pub_dir(home),
@@ -174,7 +174,7 @@ def default_deps() -> Deps:
 class DeployContext:
     """One run of the pipeline. The steps read and update ``node``; ``save`` stores it in KV.
 
-    The fields after ``app_ports`` carry results from one step to a later one.
+    The fields after ``in_use`` carry results from one step to a later one.
     """
 
     req: AddRequest
@@ -188,8 +188,10 @@ class DeployContext:
     key: AgentKey
     agent: str | None
     app_ports: tuple[tuple[int, str], ...]  # (port, protocol) pairs the node's service listens on
+    features: list[str] = field(default_factory=lambda: list(features.ALL))  # what this run deploys
+    in_use: bool = False  # a finished run left something on the server before this one
     lightsail: Lightsail | None = None
-    deployed: bool = False  # the node had a finished deployment before this run, so it is in use
+    deployed: bool = False  # Xray was deployed by a finished run before this one, so it is in use
     new_instance: bool = False  # step_ip created the Lightsail instance in this run (rerun included)
     taken_over: bool = False  # the takeover gate in step_connect passed in this run
     facts: Facts | None = None  # what preflight.sh printed in step_connect

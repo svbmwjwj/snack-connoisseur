@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
 
-from deploy_fakes import run_add
+from deploy_fakes import run_up
 
 from cnsr.commands import listing
 from cnsr.qx import client_lines, v2rayn_url
@@ -18,7 +20,7 @@ def run_list(fakes) -> tuple[int, str]:
 
 
 def test_list_shows_the_nodes_and_both_subscriptions(fake_deps):
-    assert run_add(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp") == 0
     meta = ControlMeta.from_json(fake_deps.kv()["meta:control"])
     node = fake_deps.node()
     before = len(fake_deps.cloudflare.calls())
@@ -33,7 +35,7 @@ def test_list_shows_the_nodes_and_both_subscriptions(fake_deps):
 
 
 def test_list_marks_a_node_that_is_not_in_the_subscription(fake_deps):
-    assert run_add(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp") == 0
     node = fake_deps.node()
     node.line = None
     fake_deps.store(node)
@@ -44,7 +46,7 @@ def test_list_marks_a_node_that_is_not_in_the_subscription(fake_deps):
 def test_list_without_a_control_plane_creates_nothing(fake_deps):
     code, out = run_list(fake_deps)
     assert code == 1
-    assert "还没有节点" in out
+    assert "还没有服务器" in out
     assert {method for method, _ in fake_deps.cloudflare.calls()} == {"GET"}
 
 
@@ -52,5 +54,24 @@ def test_list_without_cloudflare_settings_says_there_are_no_nodes(fake_deps):
     fake_deps.deps.conf_path.unlink()
     code, out = run_list(fake_deps)
     assert code == 1
-    assert "还没有节点" in out
+    assert "还没有服务器" in out
     assert fake_deps.calls["make_cf"] == []
+
+
+def test_list_names_what_each_server_has(fake_deps):
+    assert run_up(fake_deps, aws="jp") == 0
+    hardened = fake_deps.node()
+    hardened.alias, hardened.features, hardened.xray, hardened.line = "jp-2", ["harden"], None, None
+    fake_deps.store(hardened)
+    fake_deps.kv()["index:nodes"] = json.dumps(["jp-1", "jp-2"])
+    _, out = run_list(fake_deps)
+    assert "服务器（2 台）" in out
+    assert re.search(r"jp-1：Xray 节点，", out) and re.search(r"jp-2：仅加固，", out)
+
+
+def test_list_without_an_xray_node_shows_no_subscription(fake_deps):
+    assert run_up(fake_deps, aws="jp", features=["harden"]) == 0
+    meta = ControlMeta.from_json(fake_deps.kv()["meta:control"])
+    _, out = run_list(fake_deps)
+    assert "jp-1：仅加固，" in out
+    assert v2rayn_url(meta) not in out and "圈X" not in out

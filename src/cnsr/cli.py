@@ -17,20 +17,21 @@ from cnsr import __version__, paths, runlog
 from cnsr.errors import CnsrError
 
 HELP_TEXT = """\
-cnsr  自建 REALITY 节点：自动部署，SNI 失效时自动更换
+cnsr  部署并加固服务器，可选自建 REALITY 节点（SNI 失效时自动更换）
 
-用法  cnsr <命令> [参数]
+用法  cnsr <命令> [参数]；在终端里不带命令运行 cnsr 时显示菜单
 
 命令
-  add [别名]            添加一台节点；不带参数时逐项询问
+  up [别名]             部署服务器：勾选要部署的功能（基础加固、Xray 节点）；
+                        不带参数时逐项询问
       --aws <区域>      在 AWS Lightsail 新开一台（区域：jp、sg、us）
-      --static-ip <IP>  配合 --aws：用你在这个区域已有的静态 IP 作节点地址；
+      --static-ip <IP>  配合 --aws：用你在这个区域已有的静态 IP 作服务器地址；
                         它绑在别的实例上时先问你再改绑，cnsr rm 时解绑并保留
       --ip <IP>         接管一台已有服务器
-  rm <别名>             删除节点；AWS 节点同时删除实例、释放静态 IP
-  list                  列出现有节点、圈X 配置和 v2rayN 订阅地址
+  rm [别名]             删除服务器；AWS 服务器同时删除实例、释放静态 IP
+  list                  服务器列表；有 Xray 节点时同时列出圈X 配置和 v2rayN 订阅地址
 
-对已有别名再次运行 add：续跑没完成的步骤、补充备选 SNI，并把节点更新到当前版本。
+对已有别名再次运行 up：续跑没完成的步骤、可以补选功能、补充备选 SNI，并更新到当前版本。
 
 选项
   -h, --help            显示本帮助
@@ -38,6 +39,9 @@ cnsr  自建 REALITY 节点：自动部署，SNI 失效时自动更换
 """
 
 AWS_REGIONS = ("jp", "sg", "us")
+# The top-level menu of ``cnsr`` run without a command, and the command behind each entry.
+MENU_LABELS = ["部署服务器", "删除服务器", "服务器列表"]
+MENU_COMMANDS = ["up", "rm", "list"]
 # argparse: "argument command: invalid choice: 'jp-1' (choose from add, rm)"
 _INVALID_CHOICE = re.compile(r"invalid choice: '([^']*)'")
 
@@ -60,7 +64,7 @@ def _explain(message: str) -> str:
     if "invalid choice" in message and "--aws" in message:
         return "--aws 的区域只能是 jp、sg、us"
     if word := _INVALID_CHOICE.search(message):
-        return f"未知命令“{word[1]}”。命令写在最前面：添加节点用 cnsr add <别名>，删除节点用 cnsr rm <别名>"
+        return f"未知命令“{word[1]}”。命令写在最前面：部署服务器用 cnsr up <别名>，删除服务器用 cnsr rm <别名>"
     if "invalid choice" in message:
         return "未知命令"
     if "required" in message:
@@ -84,17 +88,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.set_defaults(alias=None, aws=None, ip=None, static_ip=None)
     commands = parser.add_subparsers(dest="command")
 
-    add = commands.add_parser("add", add_help=False)
-    add.add_argument("-h", "--help", action=_HelpAction)
-    add.add_argument("alias", nargs="?")
-    source = add.add_mutually_exclusive_group()
+    up = commands.add_parser("up", add_help=False)
+    up.add_argument("-h", "--help", action=_HelpAction)
+    up.add_argument("alias", nargs="?")
+    source = up.add_mutually_exclusive_group()
     source.add_argument("--aws", choices=AWS_REGIONS)
     source.add_argument("--ip")
-    add.add_argument("--static-ip")
+    up.add_argument("--static-ip")
 
     rm = commands.add_parser("rm", add_help=False)
     rm.add_argument("-h", "--help", action=_HelpAction)
-    rm.add_argument("alias")
+    rm.add_argument("alias", nargs="?")
 
     listing = commands.add_parser("list", add_help=False)
     listing.add_argument("-h", "--help", action=_HelpAction)
@@ -117,10 +121,10 @@ def _use_utf8_output() -> None:
 
 def _dispatch(ns: argparse.Namespace) -> int:
     # Imported lazily so that help and version never load the command modules.
-    if ns.command == "add":
-        from cnsr.commands import add
+    if ns.command == "up":
+        from cnsr.commands import up
 
-        return add.run(ns)
+        return up.run(ns)
     if ns.command == "list":
         from cnsr.commands import listing
 
@@ -180,6 +184,18 @@ def _report_log(run: runlog.Run) -> None:
         print(f"日志：{run.path.resolve()}", flush=True)
 
 
+def _menu_command() -> str | None:
+    """The command picked in the top-level menu; None without a terminal to show it in."""
+    if sys.platform == "win32":
+        return None
+    from cnsr.menu import terminal_select  # questionary loads only for the menu
+
+    select = terminal_select()
+    if select is None:
+        return None
+    return MENU_COMMANDS[select("要做什么？", MENU_LABELS)]
+
+
 def main(argv: list[str] | None = None) -> int:
     _use_utf8_output()
     argv = sys.argv[1:] if argv is None else argv
@@ -188,8 +204,10 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 0
     if ns.command is None:
-        sys.stdout.write(HELP_TEXT)
-        return 0
+        ns.command = _menu_command()
+        if ns.command is None:
+            sys.stdout.write(HELP_TEXT)
+            return 0
     # Windows support is paused until its test failures are worked through.
     if sys.platform == "win32":
         sys.stderr.write("cnsr 暂不支持 Windows，请在 macOS 或 Linux 上运行。\n")

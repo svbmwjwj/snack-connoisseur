@@ -384,7 +384,7 @@ test("probe rejects malformed or non-object JSON", async () => {
 });
 
 // workers.dev is the nodes' way in (zone security settings do not apply there): only the node
-// API answers on it; clients and cnsr add use the zone's own host.
+// API answers on it; clients and cnsr up use the zone's own host.
 test("on workers.dev only the node API answers", async () => {
   const env = envWith({ "node:jp-1": JSON.stringify({ alias: "jp-1", line: "vless=x", node_token: "nt" }) });
   const handler = makeHandler({ connect: fakeConnect().connect });

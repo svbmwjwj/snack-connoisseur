@@ -1,8 +1,9 @@
-"""``cnsr add``: gather what the deployment needs, run the pipeline, print the client config.
+"""``cnsr up``: gather what the deployment needs, run the pipeline, print what to do next.
 
 Questions follow the spec's order: Cloudflare (first run only), alias, source, AWS region and
-credentials or the server's address and login, then the SSH agent and key. Whatever the
-arguments, the control plane's inventory or ``~/.ssh/config`` already say is not asked again.
+credentials or the server's address and login, the features to deploy, then the SSH agent and
+key. Whatever the arguments, the control plane's inventory or ``~/.ssh/config`` already say is
+not asked again.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import ipaddress
 import re
 from argparse import Namespace
 
-from cnsr import localconf, runlog
+from cnsr import features, localconf, runlog
 from cnsr.aws.lightsail import LOGIN_USER, REGIONS, Lightsail
 from cnsr.cloudflare.api import CloudflareClient
 from cnsr.cloudflare.control import check_token, ensure_control_plane
@@ -24,7 +25,6 @@ from cnsr.deploy.steps import run_pipeline
 from cnsr.errors import CnsrError
 from cnsr.naming import validate_alias
 from cnsr.qx import client_lines, v2rayn_url
-from cnsr.server import xray
 from cnsr.ssh.config import HostBlock, read_block
 from cnsr.state import Inventory, Node, SshInfo
 
@@ -36,10 +36,11 @@ _ZONE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
 
 
 def run(ns: Namespace, deps: Deps | None = None) -> int:
-    """Deploy the node ``ns.alias``, or bring it up to date; 0 on success, 1 after an error.
+    """Deploy the server ``ns.alias``, or bring it up to date; 0 on success, 1 after an error.
 
     The error is printed here. Ctrl-C and unexpected errors go up to ``cnsr.cli``, which reports
     them. In every case, a first AWS deployment that did not finish first deletes what it created.
+    ``ns.features``, when set, are the features to deploy instead of asking (the tests use it).
     """
     deps = deps or default_deps()
     ctx: DeployContext | None = None
@@ -47,6 +48,8 @@ def run(ns: Namespace, deps: Deps | None = None) -> int:
         with saved_token_hint(deps.conf_path):
             ctx = prepare(ns, deps)
             run_pipeline(ctx)
+            ctx.node.features = list(ctx.features)
+            ctx.save()
             ctx.inventory.keep_indexed(ctx.node.alias)
     except CnsrError as exc:
         deps.ui.error(str(exc))
@@ -62,16 +65,16 @@ def run(ns: Namespace, deps: Deps | None = None) -> int:
 def _clean_up(ctx: DeployContext | None) -> None:
     """Delete what a first AWS deployment that stopped part way created, so nothing keeps costing.
 
-    A node that was deployed before is in use and stays as it is, and so does a vendor server,
-    which is not cnsr's to delete. After the cleanup the next run starts from scratch.
+    A server a finished run left anything on is in use and stays as it is, and so does a vendor
+    server, which is not cnsr's to delete. After the cleanup the next run starts from scratch.
     """
-    if ctx is None or ctx.req.source != "aws" or ctx.deployed:
+    if ctx is None or ctx.req.source != "aws" or ctx.in_use:
         return
     ui, node = ctx.deps.ui, ctx.node
     alias = node.alias
     # rm keeps a reused static IP: it goes back to the instance it was moved from
     moved = (node.static_ip_name, node.static_ip_from) if node.static_ip_reused else (None, None)
-    cleaning = "部署没有完成，删除这次在 AWS 和 Cloudflare 上建的实例、静态 IP、DNS 记录和节点登记"
+    cleaning = "部署没有完成，删除这次在 AWS 和 Cloudflare 上建的实例、静态 IP、DNS 记录和服务器登记"
     ui.busy(cleaning)
     ui.detail(cleaning)
     try:
@@ -113,6 +116,8 @@ def prepare(ns: Namespace, deps: Deps) -> DeployContext:
     existing = inventory.get(alias)
     block = read_block(deps.ssh_config, alias)
     req = _rerun_request(ns, existing) if existing is not None else _new_request(ns, deps, alias, block)
+    installed = features.installed(existing)
+    chosen = _features(ns, deps, installed)
     lightsail = _lightsail(deps, req.region) if req.source == "aws" else None
     agent, key, key_name = choose_login(deps, alias, _key_name_hint(alias, existing, block))
     pub_file(deps, key, key_name)
@@ -124,9 +129,36 @@ def prepare(ns: Namespace, deps: Deps) -> DeployContext:
     node = existing or Node(alias=alias, source=req.source, ipv4="", region=req.region)
     node.ssh = SshInfo(req.user, req.port, key_name)
     return DeployContext(
-        req, deps, node, inventory, cf, zone_id, zone, meta, key, agent, xray.PORTS,
-        lightsail=lightsail, saved=saved, deployed=existing is not None and existing.line is not None,
+        req, deps, node, inventory, cf, zone_id, zone, meta, key, agent, features.app_ports(chosen),
+        features=chosen, in_use=bool(installed), lightsail=lightsail, saved=saved,
+        deployed=existing is not None and existing.line is not None,
     )  # fmt: skip
+
+
+def _features(ns: Namespace, deps: Deps, installed: list[str]) -> list[str]:
+    """The features to deploy: ticked in a menu, where those already deployed cannot be unticked.
+
+    Nothing is asked when every feature is deployed already, nor without a terminal, where
+    every feature is deployed.
+    """
+    if getattr(ns, "features", None) is not None:
+        chosen = list(ns.features)
+    elif set(installed) == set(features.ALL) or not deps.ui.interactive:
+        chosen = list(features.ALL)
+    else:
+        names = list(features.ALL)
+        ticks = deps.ui.choose_many(
+            "要部署哪些功能？",
+            [features.LABELS[name] for name in names],
+            checked=set(range(len(names))),
+            locked={names.index(name) for name in installed},
+            validate=lambda picked: features.problem([names[index] for index in picked]),
+        )
+        chosen = [names[index] for index in ticks]
+    problem = features.problem(chosen)
+    if problem is not None:
+        raise CnsrError(problem)
+    return [name for name in features.ALL if name in chosen or name in installed]
 
 
 def _cloudflare(deps: Deps) -> tuple[CloudflareClient, str]:
@@ -150,7 +182,7 @@ def _cloudflare(deps: Deps) -> tuple[CloudflareClient, str]:
 
 def _alias(ns: Namespace, deps: Deps) -> str:
     if ns.alias is None:
-        return deps.ui.ask("节点别名（例如 jp-1）", validate=validate_alias)
+        return deps.ui.ask("服务器别名（例如 jp-1）", validate=validate_alias)
     error = validate_alias(ns.alias)
     if error is not None:
         raise CnsrError(error)
@@ -175,7 +207,7 @@ def _rerun_request(ns: Namespace, node: Node) -> AddRequest:
     ):
         where = f"AWS {node.region}" if node.source == "aws" else f"已有服务器 {node.ipv4}"
         raise CnsrError(
-            f"节点 {node.alias} 已存在（{where}），和这次的参数不一致。"
+            f"服务器 {node.alias} 已存在（{where}），和这次的参数不一致。"
             f"要部署到别处，请换一个别名，或先运行 cnsr rm {node.alias}。"
         )
     default_user = LOGIN_USER if node.source == "aws" else "root"
@@ -281,11 +313,16 @@ def _port_error(value: str) -> str | None:
 def _print_summary(ctx: DeployContext) -> None:
     node, ui = ctx.node, ctx.deps.ui
     ui.info("")
+    if features.XRAY not in ctx.features:
+        ssh = node.ssh
+        ui.info(f"服务器 {node.alias} 已加固：用 ssh {node.alias} 登录（用户 {ssh.user}，端口 {ssh.port}）。")
+        ui.info(f"以后要在这台服务器上部署 Xray 节点，运行 cnsr up {node.alias} 并勾选它。")
+        return
     ui.info(f"节点 {node.alias} 已就绪：{node.domain}，SNI {node.xray.sni}。")
     if ctx.alias_switched:
         ui.info(f"SSH 别名 {node.alias} 已指向 {node.domain}，可以直接用 ssh {node.alias} 登录。")
     else:
-        ui.warn(f"SSH 别名 {node.alias} 暂时仍指向 IP {node.ipv4}；以后运行 cnsr add {node.alias} 时会再检查并切到域名。")
+        ui.warn(f"SSH 别名 {node.alias} 暂时仍指向 IP {node.ipv4}；以后运行 cnsr up {node.alias} 时会再检查并切到域名。")
     ui.info("")
     ui.info("圈X 节点行（控制端的远程资源 cnsr 里已经有它）：")
     ui.info(node.line)

@@ -9,12 +9,13 @@ import pytest
 from harden_harness import harden_tool, server  # noqa: F401  (fixtures)
 
 from cnsr.server.harden import stage_args
+from cnsr.server.xray import PORTS
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="bash is not available on Windows")
 
 LOCK = "flock -w 60 9"
 RUNS = {
-    "harden-stage.sh": stage_args(23456, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample cnsr"),
+    "harden-stage.sh": stage_args(23456, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample cnsr", PORTS),
     "harden-cut.sh": ["23456"],
     "harden-revert.sh": ["all"],
 }

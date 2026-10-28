@@ -14,6 +14,7 @@ from harden_fakes import CHECKS, FakeServer, hardener, port_of, sshd_t
 from key_samples import ED as PUB
 
 from cnsr.errors import CnsrError
+from cnsr.server.xray import PORTS
 from cnsr.ssh.remote import SshError
 
 PORT = 23456
@@ -40,7 +41,7 @@ def recorder(fakes: FakeServer):
 
 def test_the_new_login_is_reported_after_the_fresh_login_and_before_the_timer_stops(fakes):
     recorded, on_cut = recorder(fakes)
-    user, port = hardener(fakes).run(PUB, busy_ports={22}, on_cut=on_cut)
+    user, port = hardener(fakes).run(PUB, busy_ports={22}, app_ports=PORTS, on_cut=on_cut)
     assert recorded == [(user, port)] == [("admin", port)]
     cut = fakes.log.index("cut")
     assert fakes.log[cut:cut + 4] == ["cut", f"login admin:{port}", "recorded", "disarm"]
@@ -50,7 +51,7 @@ def test_ctrl_c_while_stopping_the_timer_comes_after_the_report(fakes):
     recorded, on_cut = recorder(fakes)
     fakes.errors["disarm"] = KeyboardInterrupt()
     with pytest.raises(KeyboardInterrupt):
-        hardener(fakes).run(PUB, busy_ports={22}, on_cut=on_cut)
+        hardener(fakes).run(PUB, busy_ports={22}, app_ports=PORTS, on_cut=on_cut)
     assert recorded == [("admin", port_of(fakes))]
 
 
@@ -62,7 +63,7 @@ def test_nothing_is_reported_when_the_cut_is_not_proven(fakes, failing):
     else:
         fakes.failing = {"cut"}
     with pytest.raises(CnsrError, match="3 分钟内自动恢复"):
-        hardener(fakes).run(PUB, busy_ports={22}, on_cut=on_cut)
+        hardener(fakes).run(PUB, busy_ports={22}, app_ports=PORTS, on_cut=on_cut)
     assert recorded == []
 
 
@@ -72,7 +73,7 @@ def test_nothing_is_reported_when_the_cut_is_not_proven(fakes, failing):
 def test_a_lost_connection_while_stopping_the_timer_is_not_called_a_restore(fakes):
     fakes.errors["disarm"] = SshError("other", "SSH 连接失败（退出码 255）：\nConnection reset")
     with pytest.raises(CnsrError) as raised:
-        hardener(fakes).run(PUB, busy_ports={22})
+        hardener(fakes).run(PUB, busy_ports={22}, app_ports=PORTS)
     message, port = str(raised.value), port_of(fakes)
     assert "自动恢复为" not in message.split("也可能没有")[0]
     assert "可能已经停止" in message and "也可能没有" in message
@@ -85,7 +86,7 @@ def test_a_lost_connection_while_stopping_the_timer_is_not_called_a_restore(fake
 def test_a_failed_timer_stop_that_is_not_an_ssh_failure_still_waits_for_the_timer(fakes):
     fakes.failing = {"disarm"}
     with pytest.raises(CnsrError, match="3 分钟内自动恢复"):
-        hardener(fakes).run(PUB, busy_ports={22})
+        hardener(fakes).run(PUB, busy_ports={22}, app_ports=PORTS)
     assert fakes.slept == [200]
 
 

@@ -1,6 +1,6 @@
 """AWS Lightsail in one region: key pairs, an instance, its static IP and its firewall.
 
-``cnsr add --aws`` creates one instance per node. The instance is named after the alias, its
+``cnsr up --aws`` creates one instance per node. The instance is named after the alias, its
 static IP is ``<alias>-ip`` and it carries the tag ``cnsr=<alias>``; the tag is how a rerun
 tells its own instance from a stranger's. Key pairs live per region and are matched by
 fingerprint, never by name, so a key the user already imported is reused whatever it is called.

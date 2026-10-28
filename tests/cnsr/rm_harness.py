@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from deploy_fakes import VPS_IP, DeployFakes, run_add, run_rm
+from deploy_fakes import VPS_IP, DeployFakes, run_up, run_rm
 
 VPS_ANSWERS = ["", "", "已保存"]
 CONFIRM_PROMPT = "输入别名确认删除："
@@ -10,13 +10,13 @@ CONFIRM_PROMPT = "输入别名确认删除："
 
 def deploy_aws(fakes: DeployFakes) -> None:
     """Deploy jp-1 on Lightsail through the fakes, then forget what that run did to them."""
-    assert run_add(fakes, aws="jp") == 0
+    assert run_up(fakes, aws="jp") == 0
     _forget_deploy(fakes)
 
 
 def deploy_vps(fakes: DeployFakes) -> None:
     fakes.terminal.inputs = list(VPS_ANSWERS)
-    assert run_add(fakes, ip=VPS_IP) == 0
+    assert run_up(fakes, ip=VPS_IP) == 0
     _forget_deploy(fakes)
 
 

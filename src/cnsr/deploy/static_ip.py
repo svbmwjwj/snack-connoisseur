@@ -1,4 +1,4 @@
-"""A static IP the user already has, made the node's address (``cnsr add --aws <region> --static-ip``).
+"""A static IP the user already has, made the node's address (``cnsr up --aws <region> --static-ip``).
 
 The IP keeps its name and is marked as reused, so ``cnsr rm`` detaches it and keeps it. One that
 is attached to another instance is moved only after the user agrees, and only once the node's

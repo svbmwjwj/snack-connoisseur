@@ -152,7 +152,7 @@ def test_a_term_while_polling_exits_143(node):
 
 
 def test_the_stop_before_an_add_leaves_a_finished_switch_alone(node):
-    # cnsr add stops the service first; its TERM handler only undoes an unfinished switch, so an
+    # cnsr up stops the service first; its TERM handler only undoes an unfinished switch, so an
     # older config.prev.json and a line not yet written stay as they are.
     node.backups([B])
     node.write("xray/conf/config.prev.json", json.dumps(xray_config(), indent=2) + "\n", 0o644)

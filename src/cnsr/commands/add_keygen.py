@@ -1,4 +1,4 @@
-"""A key pair cnsr add makes with ssh-keygen when no agent key fits, kept in ``~/.ssh/cnsr/<alias>``.
+"""A key pair cnsr up makes with ssh-keygen when no agent key fits, kept in ``~/.ssh/cnsr/<alias>``.
 
 ssh-keygen asks whether to set a passphrase. Without one, ssh reads the private key straight
 from the file; with one, the key goes to the session's ssh-agent once (ssh-add asks for the

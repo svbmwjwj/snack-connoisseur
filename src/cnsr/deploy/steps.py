@@ -1,4 +1,7 @@
-"""The ``cnsr add`` pipeline: eight steps, each of which looks at the real state before acting.
+"""The ``cnsr up`` pipeline: eight steps, each of which looks at the real state before acting.
+
+Steps 1-3 prepare and harden the server; steps 4-8 deploy the Xray node and run only when
+that feature is chosen (see ``steps_for``).
 
 A run that stops part way (an error, Ctrl-C) is continued by running the same command again.
 So a step cut off by a dropped connection runs once more, once the server answers again.
@@ -8,6 +11,7 @@ from __future__ import annotations
 
 from cnsr.aws.lightsail import REGION_NAMES
 from cnsr.cloudflare.api import CloudflareError
+from cnsr import features
 from cnsr.deploy.context import AddRequest, DeployContext
 from cnsr.deploy.steps_host import step_connect, step_harden, step_ip
 from cnsr.deploy.steps_node import step_register, step_xray
@@ -16,7 +20,9 @@ from cnsr.deploy.steps_sni import step_scan, step_sni
 from cnsr.ssh.remote import SshError
 from cnsr.waiting import Deadline
 
-STEPS = (step_ip, step_connect, step_harden, step_scan, step_sni, step_xray, step_register, step_rotate)
+HOST_STEPS = (step_ip, step_connect, step_harden)
+XRAY_STEPS = (step_scan, step_sni, step_xray, step_register, step_rotate)
+STEPS = HOST_STEPS + XRAY_STEPS
 TITLES = {
     "step_ip": "确定服务器地址",
     "step_connect": "连接服务器并建解析",
@@ -36,25 +42,31 @@ LOGIN_TIMEOUT = 30
 # A record write that got no answer is tried again after this long.
 SAVE_RETRY_SECONDS = 3
 
-__all__ = ["REGION_NAMES", "STEPS", "TITLES", "heading", "run_pipeline", *TITLES]
+__all__ = ["REGION_NAMES", "STEPS", "TITLES", "heading", "run_pipeline", "steps_for", *TITLES]
 
 
 def heading(req: AddRequest) -> str:
     """The title line of the stage list: the command, the alias and where the node runs."""
     if req.source == "aws":
-        return f"cnsr add {req.alias} · AWS {REGION_NAMES.get(req.region, req.region)}"
-    return f"cnsr add {req.alias} · 已有服务器 {req.ip}"
+        return f"cnsr up {req.alias} · AWS {REGION_NAMES.get(req.region, req.region)}"
+    return f"cnsr up {req.alias} · 已有服务器 {req.ip}"
+
+
+def steps_for(chosen: list[str]) -> tuple:
+    """The steps that deploy ``chosen``: the server's own, then those of each extension."""
+    return STEPS if features.XRAY in chosen else STEPS[: len(HOST_STEPS)]
 
 
 def run_pipeline(ctx: DeployContext) -> None:
-    """Run every step in order.
+    """Run the steps of the chosen features in order.
 
     The node record is stored after each step that changed it, and also when a step fails or
-    is interrupted part way, so a rerun of ``add`` (or ``rm``) finds what was already created.
+    is interrupted part way, so a rerun of ``up`` (or ``rm``) finds what was already created.
     """
     ui = ctx.deps.ui
-    ui.begin(heading(ctx.req), list(TITLES.values()))
-    for number, step in enumerate(STEPS, 1):
+    steps = steps_for(ctx.features)
+    ui.begin(heading(ctx.req), [TITLES[step.__name__] for step in steps])
+    for number, step in enumerate(steps, 1):
         try:
             ui.stage(number)
             _run_step(ctx, number, step)

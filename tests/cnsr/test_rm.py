@@ -24,7 +24,7 @@ def test_unknown_alias(fake_deps):
     deploy_aws(fake_deps)
     code, out = remove(fake_deps, "x")
     assert code == 1
-    assert "没有名为 x 的节点" in out
+    assert "没有名为 x 的服务器" in out
     assert fake_deps.node() is not None
     assert fake_deps.lightsail.calls == [] and fake_deps.dns.requests == []
     assert fake_deps.terminal.prompts == []
@@ -33,7 +33,7 @@ def test_unknown_alias(fake_deps):
 def test_no_control_plane_is_not_created(fake_deps):
     code, out = remove(fake_deps)
     assert code == 1
-    assert "没有名为 jp-1 的节点" in out
+    assert "没有名为 jp-1 的服务器" in out
     assert {method for method, _ in fake_deps.cloudflare.calls()} == {"GET"}
     assert fake_deps.cloudflare.namespaces == {}
     assert fake_deps.cloudflare.scripts == {} and fake_deps.cloudflare.domains == []
@@ -43,7 +43,7 @@ def test_no_cloudflare_settings_means_no_nodes(fake_deps):
     fake_deps.deps.conf_path.unlink()
     code, out = remove(fake_deps)
     assert code == 1
-    assert "没有名为 jp-1 的节点" in out
+    assert "没有名为 jp-1 的服务器" in out
     assert fake_deps.calls["make_cf"] == []
 
 
@@ -74,7 +74,7 @@ def test_aws_listing_comes_before_the_confirmation(fake_deps):
     node = fake_deps.node()
     assert remove(fake_deps)[0] == 0
     (listed,) = fake_deps.terminal.seen
-    for fragment in ("Lightsail 实例 jp-1", "区域 jp", "静态 IP jp-1-ip", node.domain, "A、AAAA", "SSH 别名 jp-1", "节点登记"):
+    for fragment in ("Lightsail 实例 jp-1", "区域 jp", "静态 IP jp-1-ip", node.domain, "A、AAAA", "SSH 别名 jp-1", "服务器登记"):
         assert fragment in listed
     assert "保留" in listed and "公钥" in listed and "key pair" in listed
 
@@ -99,7 +99,7 @@ def test_aws_full_removal(fake_deps):
     code, out = remove(fake_deps)
 
     assert code == 0
-    assert "已删除 SSH 别名 jp-1" in out and "节点 jp-1 已删除" in out
+    assert "已删除 SSH 别名 jp-1" in out and "服务器 jp-1 已删除" in out
     assert fake_deps.lightsail.calls == [
         ("instance_tagged", "jp-1", "jp-1"),
         ("static_ip_attachment", "jp-1-ip"),
@@ -235,7 +235,7 @@ def test_nothing_is_claimed_when_remove_block_deletes_nothing(fake_deps, monkeyp
     monkeypatch.setattr(rm, "remove_block", lambda path, alias, hostnames=None: False)
     code, out = remove(fake_deps)
     assert code == 0
-    assert "已删除 SSH 别名" not in out and "节点 jp-1 已删除" in out
+    assert "已删除 SSH 别名" not in out and "服务器 jp-1 已删除" in out
 
 
 def test_an_alias_without_hostname_is_left_alone(fake_deps):
@@ -343,5 +343,5 @@ def test_a_revoked_saved_token_says_how_to_enter_a_new_one(fake_deps, status):
 def test_an_error_goes_to_stderr(fake_deps):
     code, _ = remove(fake_deps, "x")
     assert code == 1
-    assert fake_deps.terminal.err.getvalue() == "错误：没有名为 x 的节点（这个 Cloudflare 账号里还没有控制端）。\n"
+    assert fake_deps.terminal.err.getvalue() == "错误：没有名为 x 的服务器（这个 Cloudflare 账号里还没有控制端）。\n"
     assert "错误" not in fake_deps.terminal.out.getvalue()

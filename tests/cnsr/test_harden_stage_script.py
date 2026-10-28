@@ -11,6 +11,7 @@ from key_samples import ED as PUB
 from key_samples import RSA
 
 from cnsr.server.harden import stage_args
+from cnsr.server.xray import PORTS
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="bash is not available on Windows")
 
@@ -53,7 +54,7 @@ FRESH = [
 
 
 def stage(server, port: int = PORT, pubkey: str = PUB):
-    return server.run("harden-stage.sh", *stage_args(port, pubkey))
+    return server.run("harden-stage.sh", *stage_args(port, pubkey, PORTS))
 
 
 @pytest.fixture

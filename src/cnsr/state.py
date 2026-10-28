@@ -52,7 +52,7 @@ class Node:
     region: str | None = None
     instance_name: str | None = None
     static_ip_name: str | None = None
-    # The static IP was the user's before (cnsr add --static-ip): cnsr rm detaches it and keeps it.
+    # The static IP was the user's before (cnsr up --static-ip): cnsr rm detaches it and keeps it.
     static_ip_reused: bool = False
     # The instance that static IP was moved from, given it back when the first deployment fails.
     static_ip_from: str | None = None
@@ -64,6 +64,8 @@ class Node:
     line: str | None = None
     # The last outside test of the node's IPv6 failed: its AAAA record waits for one that passes.
     ipv6_probe_failed: bool = False
+    # What finished runs of ``cnsr up`` left on the server (see cnsr.features); empty until one did.
+    features: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         runlog.secret(self.node_token)
@@ -128,7 +130,7 @@ class Inventory:
     def keep_indexed(self, alias: str) -> None:
         """Add the alias to the index unless it is there already.
 
-        ``cnsr add`` calls this once more at the end: another ``add`` running at the same time
+        ``cnsr up`` calls this once more at the end: another ``up`` running at the same time
         may have rewritten the index without this node.
         """
         aliases, stored = self._index()

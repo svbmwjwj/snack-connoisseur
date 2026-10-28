@@ -7,7 +7,7 @@
 # answered 401 for more than UNAUTHORIZED_STOP_SECONDS (the node was removed; KV can serve an
 # old record for a moment), then writes /opt/cnsr/stopped and exits 0. With "check" it asks
 # for the task once, without ?version, and prints the HTTP status ("000": not reached), for
-# cnsr add to see that the node reaches the control plane; it changes nothing on the node.
+# cnsr up to see that the node reaches the control plane; it changes nothing on the node.
 #
 # One round: a new line that could not be written to the control plane last time
 # (line-pending.json) is written first, and nothing else happens until that works. Then

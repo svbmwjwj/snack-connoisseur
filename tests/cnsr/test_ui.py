@@ -83,10 +83,10 @@ def test_noninteractive_message_names_the_prompt():
 
 def test_noninteractive_still_prints_progress():
     ui, out = make([], interactive=False)
-    ui.begin("cnsr add jp-1", ["准备", "收尾"])
+    ui.begin("cnsr up jp-1", ["准备", "收尾"])
     ui.stage(1)
     ui.info("好了")
-    assert out.getvalue() == "cnsr add jp-1\n[1/2] 准备\n好了\n"
+    assert out.getvalue() == "cnsr up jp-1\n[1/2] 准备\n好了\n"
 
 
 def test_interactive_none_follows_stdin_tty(monkeypatch):
@@ -335,3 +335,64 @@ def test_error_goes_to_its_own_stream_with_the_prefix():
 def test_error_defaults_to_stderr(capsys):
     Ui(interactive=False).error("出错了")
     assert capsys.readouterr().err == "错误：出错了\n"
+
+
+FEATURES = ["基础加固", "Xray 节点"]
+
+
+def needs_first(ticks):
+    return None if 0 in ticks else "要先选第一项"
+
+
+def test_choose_many_takes_the_default_on_enter():
+    ui, out = make([""])
+    assert ui.choose_many("功能", FEATURES, {0, 1}, set(), needs_first) == [0, 1]
+    assert "1. 基础加固" in out.getvalue() and "2. Xray 节点" in out.getvalue()
+
+
+def test_choose_many_takes_the_numbers_typed_in_any_comma():
+    ui, _ = make(["1"])
+    assert ui.choose_many("功能", FEATURES, {0, 1}, set(), needs_first) == [0]
+    ui, _ = make(["2，1"])
+    assert ui.choose_many("功能", FEATURES, set(), set(), needs_first) == [0, 1]
+
+
+def test_choose_many_asks_again_until_the_check_passes():
+    ui, out = make(["2", "9", "1,2"])
+    assert ui.choose_many("功能", FEATURES, {0, 1}, set(), needs_first) == [0, 1]
+    assert "要先选第一项" in out.getvalue() and "1 到 2 之间的编号" in out.getvalue()
+
+
+def test_choose_many_keeps_locked_options_and_marks_them():
+    ui, out = make(["1"])
+    assert ui.choose_many("功能", FEATURES, {0}, {1}, needs_first) == [0, 1]
+    assert "2. Xray 节点（已部署，不能取消）" in out.getvalue()
+
+
+def test_choose_many_hands_everything_to_the_menu_when_there_is_one():
+    seen = []
+
+    def menu(prompt, options, checked, locked, validate):
+        seen.append((prompt, options, checked, locked, validate([1])))
+        return [0, 1]
+
+    ui = Ui(input_fn=lambda p: pytest.fail("no typed answer with a menu"), out=io.StringIO(), interactive=True,
+            select_many_fn=menu)  # fmt: skip
+    assert ui.choose_many("功能", FEATURES, {0, 1}, {0}, needs_first) == [0, 1]
+    assert seen == [("功能", FEATURES, {0, 1}, {0}, "要先选第一项")]
+
+
+def test_choose_many_without_a_terminal_is_an_error():
+    ui = Ui(out=io.StringIO(), interactive=False, select_many_fn=lambda *a: pytest.fail("menu opened"))
+    with pytest.raises(CnsrError, match="缺少参数：功能"):
+        ui.choose_many("功能", FEATURES, {0, 1}, set(), needs_first)
+    assert ui.interactive is False
+
+
+def test_eof_in_the_checkbox_menu_becomes_cnsr_error():
+    def closed(*args):
+        raise EOFError
+
+    ui = Ui(out=io.StringIO(), interactive=True, select_many_fn=closed)
+    with pytest.raises(CnsrError, match="缺少参数：功能"):
+        ui.choose_many("功能", FEATURES, {0, 1}, set(), needs_first)

@@ -7,7 +7,7 @@ from rich.console import Console
 
 from cnsr.progress import LiveStages, PlainStages, elapsed, terminal_display
 
-HEADING = "cnsr add jp-1 · AWS 东京"
+HEADING = "cnsr up jp-1 · AWS 东京"
 TITLES = ["甲", "乙", "丙"]
 ALT_ON, ALT_OFF = "\x1b[?1049h", "\x1b[?1049l"
 CONTROL = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
@@ -187,7 +187,7 @@ def test_live_busy_shows_a_spinner_line_until_idle():
 def test_live_fits_a_narrow_terminal():
     long_title = "很" * 40
     stages, file, clock = live(width=30)
-    stages.begin(f"cnsr add {long_title}", [long_title, "乙"])
+    stages.begin(f"cnsr up {long_title}", [long_title, "乙"])
     stages.start(1)
     stages.count(1534, 3071)
     clock.now += 75

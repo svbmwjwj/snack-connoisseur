@@ -23,23 +23,26 @@ from cnsr.deploy.context import Deps, default_deps, known_lightsail
 from cnsr.deploy.dns_records import delete_node_records
 from cnsr.deploy.steps_host import STATIC_IP_SUFFIX
 from cnsr.errors import CnsrError
+from cnsr.naming import validate_alias
 from cnsr.ssh.config import HostBlock, read_block, remove_block
 from cnsr.state import Inventory, Node
 
 RM_TITLES = {"aws": "删除 AWS 实例和静态 IP", "dns": "删除 DNS 记录", "alias": "删除 SSH 别名", "record": "删除控制端登记"}
-# A static IP you had before the node (cnsr add --static-ip) is detached and kept, not deleted.
+# A static IP you had before the node (cnsr up --static-ip) is detached and kept, not deleted.
 KEPT_IP_TITLE = "删除 AWS 实例（静态 IP 保留）"
 
 
 def run(ns: Namespace, deps: Deps | None = None) -> int:
-    """Delete the node ``ns.alias``; 0 when everything is gone, 1 after an error or a leftover.
+    """Delete the server ``ns.alias``; 0 when everything is gone, 1 after an error or a leftover.
 
-    The error is printed here. Ctrl-C goes up to ``cnsr.cli``.
+    Without an alias (``cnsr`` started from its menu) the alias is asked. The error is printed
+    here. Ctrl-C goes up to ``cnsr.cli``.
     """
     deps = deps or default_deps()
     try:
         with saved_token_hint(deps.conf_path):
-            return _remove(ns.alias, deps)
+            alias = ns.alias or deps.ui.ask("要删除的服务器别名", validate=validate_alias)
+            return _remove(alias, deps)
     except CnsrError as exc:
         deps.ui.error(str(exc))
         return 1
@@ -67,9 +70,9 @@ def _remove(alias: str, deps: Deps) -> int:
         raise
     ui.end("failed" if left else "done")  # the record stays while anything is left
     if not left:
-        ui.info(f"节点 {alias} 已删除。")
+        ui.info(f"服务器 {alias} 已删除。")
         return 0
-    ui.warn(f"节点 {alias} 没有删干净，它的记录已保留。以下几项需要处理：")
+    ui.warn(f"服务器 {alias} 没有删干净，它的记录已保留。以下几项需要处理：")
     for item in left:
         ui.info(f"  — {item}")
     ui.info(f"处理好之后，重新运行 cnsr rm {alias} 补删。")
@@ -100,7 +103,7 @@ def remove_node(
     ``ip_goes_back``: a kept static IP is attached to its old instance right after, so the note
     that a free static IP is charged by the hour goes to the log only.
 
-    Something left keeps the record, updated with what was deleted. ``cnsr add`` uses this
+    Something left keeps the record, updated with what was deleted. ``cnsr up`` uses this
     too, to clean up after a first AWS deployment that failed. ``on_stage(key, previous_left)``
     is called before each part of ``rm_stages(node)`` starts, whether or not it has anything
     to do; ``previous_left`` says whether the part before it left something.
@@ -129,7 +132,7 @@ def remove_node(
         _save_progress(inventory, node, recorded, deps)
         raise
     if not left:
-        deps.ui.detail("从控制端删除节点登记和它的换 SNI 状态。")
+        deps.ui.detail("从控制端删除服务器登记和它的换 SNI 状态。")
         try:
             inventory.delete_state(node.alias)  # first: while the record stays, a rerun retries it
             inventory.delete(node.alias)
@@ -145,23 +148,23 @@ def _find_node(alias: str, deps: Deps) -> tuple[CloudflareClient, str, Inventory
     values = localconf.load(deps.conf_path)
     token, zone = values.get("CLOUDFLARE_API_TOKEN"), values.get("CLOUDFLARE_ZONE")
     if not (token and zone):
-        raise CnsrError(f"没有名为 {alias} 的节点（本机还没有 Cloudflare 设置）。")
+        raise CnsrError(f"没有名为 {alias} 的服务器（本机还没有 Cloudflare 设置）。")
     cf = deps.make_cf(token)
     found = find_control_plane(cf, zone)
     if found is None:
-        raise CnsrError(f"没有名为 {alias} 的节点（这个 Cloudflare 账号里还没有控制端）。")
+        raise CnsrError(f"没有名为 {alias} 的服务器（这个 Cloudflare 账号里还没有控制端）。")
     kv, _, zone_id = found
     inventory = Inventory(kv)
     node = inventory.get(alias)
     if node is None:
-        raise CnsrError(f"没有名为 {alias} 的节点。")
+        raise CnsrError(f"没有名为 {alias} 的服务器。")
     return cf, zone_id, inventory, node
 
 
 def _show_plan(node: Node, deps: Deps) -> None:
     """List what will be deleted and what stays."""
     ui = deps.ui
-    ui.info(f"将删除节点 {node.alias}：")
+    ui.info(f"将删除服务器 {node.alias}：")
     keep = ["~/.ssh/pub 里的公钥文件，SSH agent 里的钥匙"]
     made = deps.key_dir / node.ssh.key_name if node.ssh else None
     if made is not None and made.exists():
@@ -187,8 +190,8 @@ def _show_plan(node: Node, deps: Deps) -> None:
     if block is not None and _is_ours(block, node):
         ui.info(f"  — SSH 别名 {node.alias}（~/.ssh/config 里指向 {block.hostname} 的那一段）")
     elif block is not None and block.hostname:
-        keep.append(f"SSH 别名 {node.alias} 指向 {block.hostname}，不是这台节点的地址")
-    ui.info("  — 控制端里的节点登记（圈X 配置行、节点 token 和换 SNI 的状态）")
+        keep.append(f"SSH 别名 {node.alias} 指向 {block.hostname}，不是这台服务器的地址")
+    ui.info("  — 控制端里的服务器登记（圈X 配置行、节点 token 和换 SNI 的状态）")
     ui.info("保留不动：")
     for item in keep:
         ui.info(f"  — {item}")

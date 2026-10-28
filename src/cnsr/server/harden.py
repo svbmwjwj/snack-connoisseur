@@ -74,15 +74,16 @@ def console_password(rng) -> str:
     return "".join(rng.choice(PASSWORD_ALPHABET) for _ in range(PASSWORD_LENGTH))
 
 
-def stage_args(port: int, pubkey_line: str) -> list[str]:
+def stage_args(port: int, pubkey_line: str, app_ports: tuple[tuple[int, str], ...]) -> list[str]:
     """The arguments of ``harden-stage.sh``. The third is ``harden-revert.sh`` in base64,
-    which the script installs as the revert program; scripts get data only as arguments.
+    which the script installs as the revert program; scripts get data only as arguments. The
+    fourth lists the ports the firewall opens for the server's features, as ``443/tcp 443/udp``.
 
     The text comes from the same reader ``Remote.run_script`` streams scripts with, so the
     installed copy is exactly what a streamed ``harden-revert.sh`` would run.
     """
     revert = base64.b64encode(_read_asset("harden-revert.sh").encode("utf-8")).decode("ascii")
-    return [str(port), pubkey_line, revert]
+    return [str(port), pubkey_line, revert, " ".join(f"{number}/{protocol}" for number, protocol in app_ports)]
 
 
 class Hardener:
@@ -101,9 +102,17 @@ class Hardener:
         self._sleep = sleep
 
     def run(
-        self, pubkey_line: str, busy_ports: set[int], on_cut: Callable[[str, int], None] | None = None
+        self,
+        pubkey_line: str,
+        busy_ports: set[int],
+        *,
+        app_ports: tuple[tuple[int, str], ...],
+        on_cut: Callable[[str, int], None] | None = None,
     ) -> tuple[str, int]:
         """Harden the server and return the user and port to log in with from now on.
+
+        The firewall opens the SSH ports and ``app_ports``, the ``(port, protocol)`` pairs the
+        server's features listen on, and nothing else.
 
         ``on_cut(user, port)`` is called as soon as a fresh login after the cut worked, before
         the timer is stopped: from then on only that login is sure to reach the server.
@@ -115,7 +124,7 @@ class Hardener:
         admin = self._make_remote(ADMIN, port)
         self._ui.detail(f"开始加固：新建用户 {ADMIN}，SSH 端口改为 {port}。确认新端口能登录之前，22 端口保持开放。")
         try:
-            self._stage(admin, pubkey, port)
+            self._stage(admin, pubkey, port, app_ports)
         except Exception as err:
             raise self._roll_back(err) from err
         self._ui.detail("新端口登录正常，开始关闭 22 端口和 root、密码登录。")
@@ -185,8 +194,8 @@ class Hardener:
         except Exception as err:
             raise self._wait_for_timer(err) from err
 
-    def _stage(self, admin: Remote, pubkey: str, port: int) -> None:
-        self._root.run_script("harden-stage.sh", stage_args(port, pubkey))
+    def _stage(self, admin: Remote, pubkey: str, port: int, app_ports: tuple[tuple[int, str], ...]) -> None:
+        self._root.run_script("harden-stage.sh", stage_args(port, pubkey, app_ports))
         self._login(admin, port)
         password = console_password(self._rng)
         runlog.secret(password)

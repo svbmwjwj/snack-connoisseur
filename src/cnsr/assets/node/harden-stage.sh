@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# harden-stage.sh <new_port> <pubkey_line> <revert_program_base64>
+# harden-stage.sh <new_port> <pubkey_line> <revert_program_base64> <app_ports>
 #
 # First half of cnsr's SSH hardening, for a server cnsr reached as root. Afterwards sshd
 # listens on 22 and on <new_port>, and the new user admin can log in with <pubkey_line> and
@@ -15,7 +15,7 @@
 #   4. automatic security updates (/etc/apt/apt.conf.d/20auto-upgrades)
 #   5. cnsr's sshd drop-in with Port 22 and Port <new_port>; SSH restarts only after sshd -t
 #      accepts it (otherwise the previous drop-in comes back) and sshd -T shows the new port
-#   6. ufw allows 22/tcp, <new_port>/tcp, 443/tcp and 443/udp, then denies other incoming
+#   6. ufw allows 22/tcp, <new_port>/tcp and the <app_ports>, then denies other incoming
 #      traffic and is enabled; the allow rules come first so that 22 is never shut. When ufw
 #      was off, /opt/cnsr/.ufw-enabled-by-cnsr records that cnsr turned it on, so that
 #      `harden-revert.sh all` turns off only a ufw cnsr enabled. /opt/cnsr/.ufw-ports-by-cnsr
@@ -72,6 +72,17 @@ check_args() {
         '' | *$'\n'* | *$'\r'*) fail "公钥必须是单独的一行。" ;;
     esac
     [ -n "$3" ] || fail "缺少回滚程序，没有做任何改动。"
+    local port
+    for port in $4; do
+        case "$port" in
+            [1-9]*/tcp | [1-9]*/udp)
+                case "${port%/*}" in
+                    *[!0-9]*) fail "应用端口的格式不对：$port" ;;
+                esac
+                ;;
+            *) fail "应用端口的格式不对：$port" ;;
+        esac
+    done
 }
 
 # put <path> <mode> <content>: replace <path> in one step (write a sibling, then rename it).
@@ -198,6 +209,7 @@ Port $1
     restart_ssh
 }
 
+# firewall <new_port> <app_ports>: <app_ports> is a space-separated list like "443/tcp 443/udp".
 firewall() {
     local status port
     status=$(ufw status 2>/dev/null || true)
@@ -213,8 +225,9 @@ firewall() {
     grep -qx "$1" "$UFW_PORTS" 2>/dev/null || printf '%s\n' "$1" >>"$UFW_PORTS"
     ufw allow 22/tcp >/dev/null
     ufw allow "$1/tcp" >/dev/null
-    ufw allow 443/tcp >/dev/null
-    ufw allow 443/udp >/dev/null
+    for port in $2; do
+        ufw allow "$port" >/dev/null
+    done
     ufw default deny incoming >/dev/null
     ufw --force enable >/dev/null
     for port in $(grep -x '[0-9][0-9]*' "$UFW_PORTS" || true); do
@@ -236,15 +249,15 @@ backend = systemd
 }
 
 main() {
-    local new_port=${1:-} pubkey=${2:-} program=${3:-}
-    check_args "$new_port" "$pubkey" "$program"
+    local new_port=${1:-} pubkey=${2:-} program=${3:-} app_ports=${4:-}
+    check_args "$new_port" "$pubkey" "$program" "$app_ports"
     install_revert_program "$program"
     install_packages ufw fail2ban python3-systemd unattended-upgrades sudo
     add_admin "$pubkey"
     mkdir -p "${AUTO_UPGRADES%/*}"
     put "$AUTO_UPGRADES" 644 "$AUTO_UPGRADES_TEXT"
     listen_on_both "$new_port"
-    firewall "$new_port"
+    firewall "$new_port" "$app_ports"
     fail2ban_jail "$new_port"
 }
 

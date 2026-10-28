@@ -7,11 +7,14 @@ import logging
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from cnsr import runlog
 from cnsr.errors import CnsrError
 from cnsr.progress import PLAIN_WORDS, Outcome, PlainStages, StageDisplay
+
+if TYPE_CHECKING:  # cnsr.menu loads questionary, which only a terminal session needs
+    from cnsr.menu import SelectMany
 
 log = logging.getLogger("cnsr.ui")
 
@@ -22,7 +25,7 @@ class Ui:
     Prompts are written by the injected readers (``input`` and ``getpass`` print
     their own prompt text); errors go to ``err`` and everything else to ``out``.
     ``select_fn``, when given, shows the options of ``choose`` as a menu instead of
-    a numbered list (see ``cnsr.menu``).
+    a numbered list (see ``cnsr.menu``); ``select_many_fn`` does the same for ``choose_many``.
     When not interactive, any call that needs an answer raises ``CnsrError``
     instead of blocking on a terminal that is not there.
 
@@ -40,10 +43,12 @@ class Ui:
         err: TextIO | None = None,
         select_fn: Callable[[str, list[str]], int] | None = None,
         display: StageDisplay | None = None,
+        select_many_fn: SelectMany | None = None,
     ):
         self._input = input_fn
         self._secret = secret_fn
         self._select = select_fn
+        self._select_many = select_many_fn
         # Resolved here rather than in the signature so redirected stdout and stderr are honoured.
         self._out = sys.stdout if out is None else out
         self._err = sys.stderr if err is None else err
@@ -104,6 +109,37 @@ class Ui:
             index = self._pick(prompt, options)
             self._answered(options[index], False)
             return index
+
+    @property
+    def interactive(self) -> bool:
+        """Whether questions can be answered; when not, every question raises ``CnsrError``."""
+        return self._interactive
+
+    def choose_many(
+        self,
+        prompt: str,
+        options: list[str],
+        checked: set[int],
+        locked: set[int],
+        validate: Callable[[list[int]], str | None],
+    ) -> list[int]:
+        """Tick options (as a checkbox menu, else by numbers) and return the sorted indexes.
+
+        ``checked`` are ticked at first and ``locked`` cannot be unticked. The answer is asked
+        again until ``validate`` (given the indexes, locked ones included) returns None.
+        """
+        if not options:
+            raise ValueError("options must not be empty")
+        with self._question(prompt):
+            if self._select_many is not None:
+                try:
+                    ticks = self._select_many(prompt, options, checked, locked, validate)
+                except EOFError:
+                    raise CnsrError(f"缺少参数：{prompt}") from None
+            else:
+                ticks = self._tick(prompt, options, checked | locked, locked, validate)
+            self._answered("、".join(options[index] for index in ticks), False)
+            return ticks
 
     def confirm_text(self, prompt: str, expected: str) -> None:
         """Block until the user types ``expected`` (surrounding spaces ignored)."""
@@ -182,6 +218,32 @@ class Ui:
             if raw.isdecimal() and 1 <= int(raw) <= last:
                 return int(raw) - 1
             self._show(f"请输入 1 到 {last} 之间的数字。")
+
+    def _tick(
+        self,
+        prompt: str,
+        options: list[str],
+        default: set[int],
+        locked: set[int],
+        validate: Callable[[list[int]], str | None],
+    ) -> list[int]:
+        """The numbered form of ``choose_many``: the numbers typed, or the default on Enter."""
+        self._show(prompt)
+        for number, option in enumerate(options, 1):
+            mark = "（已部署，不能取消）" if number - 1 in locked else ""
+            self._show(f"{number}. {option}{mark}")
+        last, initial = len(options), ",".join(str(index + 1) for index in sorted(default))
+        while True:
+            raw = self._read(self._input, f"输入要选的编号，用逗号隔开（直接回车：{initial}）：", prompt).strip()
+            parts = [part.strip() for part in raw.replace("，", ",").split(",")] if raw else []
+            if not all(part.isdecimal() and 1 <= int(part) <= last for part in parts):
+                self._show(f"请输入 1 到 {last} 之间的编号，用逗号隔开。")
+                continue
+            ticks = sorted({int(part) - 1 for part in parts} | locked) if raw else sorted(default)
+            message = validate(ticks)
+            if message is None:
+                return ticks
+            self._show(message)
 
     @contextmanager
     def _question(self, prompt: str) -> Iterator[None]:
