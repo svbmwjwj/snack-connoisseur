@@ -9,6 +9,8 @@ from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from typing import TYPE_CHECKING, TextIO
 
+from rich.text import Text
+
 from cnsr import runlog
 from cnsr.errors import CnsrError
 from cnsr.progress import PLAIN_WORDS, Outcome, PlainStages, StageDisplay
@@ -188,6 +190,11 @@ class Ui:
     def info(self, msg: str) -> None:
         self._display.line(msg)
         log.info("%s", msg)
+
+    def styled(self, text: Text) -> None:
+        """Like ``info``, with colours on a terminal; the log gets the plain text."""
+        self._display.line(text)
+        log.info("%s", text.plain)
 
     def detail(self, msg: str) -> None:
         """Progress detail for the log only."""

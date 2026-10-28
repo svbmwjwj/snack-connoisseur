@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+from rich.text import Text
+
 from cnsr.progress import Outcome, StageDisplay
 
 
@@ -33,8 +35,8 @@ class RecordingDisplay(StageDisplay):
     def end(self, outcome: Outcome) -> None:
         self.calls.append(("end", outcome))
 
-    def line(self, text: str) -> None:
-        self.calls.append(("line", text))
+    def line(self, text: str | Text) -> None:
+        self.calls.append(("line", str(text)))
 
     @contextmanager
     def paused(self) -> Iterator[None]:

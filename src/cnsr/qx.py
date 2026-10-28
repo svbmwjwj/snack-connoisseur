@@ -26,7 +26,7 @@ def client_lines(meta: ControlMeta) -> str:
     return "\n".join(
         [
             "[server_remote]",
-            f"https://{meta.host}/{meta.client_token}/cnsr.snippet, tag=cnsr, update-interval=86400, "
+            f"{snippet_url(meta)}, tag=cnsr, update-interval=86400, "
             "opt-parser=false, enabled=true",
             "",
             "[filter_local]",
@@ -37,6 +37,11 @@ def client_lines(meta: ControlMeta) -> str:
             f"event-interaction https://{meta.host}/{meta.client_token}/check-ui.js, tag=cnsr 检测, enabled=true",
         ]
     )
+
+
+def snippet_url(meta: ControlMeta) -> str:
+    """The Quantumult X subscription address: the server lines of every node."""
+    return f"https://{meta.host}/{meta.client_token}/cnsr.snippet"
 
 
 def v2rayn_url(meta: ControlMeta) -> str:

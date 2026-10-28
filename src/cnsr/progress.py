@@ -63,8 +63,12 @@ class StageDisplay(Protocol):
     def end(self, outcome: Outcome) -> None:
         """End the current stage and the run with ``outcome``."""
 
-    def line(self, text: str) -> None:
-        """Print a line that stays on screen."""
+    def line(self, text: str | Text) -> None:
+        """Print a line that stays on screen; a plain display drops the styles of ``Text``.
+
+        A ``Text`` with ``no_wrap`` goes out whole and the terminal wraps it, so a copied line
+        has no newlines in it.
+        """
 
     def paused(self) -> AbstractContextManager[None]:
         """Stop drawing while something else (a question, ssh) owns the terminal."""
@@ -143,8 +147,8 @@ class PlainStages(StageDisplay):
             self._report(self._run, self._run.finish(outcome, self._clock()), outcome)
         self._run = None
 
-    def line(self, text: str) -> None:
-        self._say(text)
+    def line(self, text: str | Text) -> None:
+        self._say(str(text))
 
     @contextmanager
     def paused(self) -> Iterator[None]:
@@ -232,8 +236,11 @@ class LiveStages(StageDisplay):
         self._console.print(final)
         self._sync()
 
-    def line(self, text: str) -> None:
-        self._console.print(Text(text))
+    def line(self, text: str | Text) -> None:
+        if isinstance(text, Text):
+            self._console.print(text, soft_wrap=bool(text.no_wrap))
+        else:
+            self._console.print(Text(text))
 
     def refresh(self) -> None:
         """Redraw the block now (tests use this with ``auto_refresh=False``)."""
