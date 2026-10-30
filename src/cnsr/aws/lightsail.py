@@ -1,8 +1,10 @@
 """AWS Lightsail in one region: key pairs, an instance, its static IP and its firewall.
 
-``cnsr up --aws`` creates one instance per node. The instance is named after the alias, its
-static IP is ``<alias>-ip`` and it carries the tag ``cnsr=<alias>``; the tag is how a rerun
-tells its own instance from a stranger's. Key pairs live per region and are matched by
+``cnsr up --aws`` creates one instance per node. The instance is named after the alias, or
+``<alias>-1``, ``<alias>-2`` and so on when another resource of the region (a key pair named
+after the alias, say) has the name; the record keeps the name used. Its static IP is
+``<alias>-ip`` and it carries the tag ``cnsr=<alias>``; the tag is how a rerun tells its own
+instance from a stranger's. Key pairs live per region and are matched by
 fingerprint, never by name, so a key the user already imported is reused whatever it is called.
 
 Every AWS failure surfaces as ``LightsailError`` (``cnsr.aws.errors``): a Chinese message that
@@ -21,7 +23,7 @@ import boto3
 from botocore import exceptions as boto_exc
 
 from cnsr.aws import bundles
-from cnsr.aws.errors import NOT_FOUND, LightsailError, not_attached, reason_for, sdk_reason
+from cnsr.aws.errors import NOT_FOUND, LightsailError, name_taken, not_attached, reason_for, sdk_reason
 from cnsr.aws.fingerprint import clean_pub_line, lightsail_fingerprint
 from cnsr.aws.static_ips import StaticIps
 from cnsr.errors import CnsrError
@@ -57,6 +59,8 @@ LOGIN_USER = "admin"
 TAG_KEY = "cnsr"
 DEFAULT_KEY_PAIR = "LightsailDefaultKeyPair"
 POLL_SECONDS = 5
+# How many names a new instance tries: the alias, then <alias>-1 and so on.
+NAME_TRIES = 10
 
 _OPEN_TO_ALL = {"cidrs": ["0.0.0.0/0"], "ipv6Cidrs": ["::/0"]}
 _SSH_PORT = (22, "tcp")
@@ -147,34 +151,58 @@ class Lightsail(StaticIps):
                 return blueprint_id
         raise CnsrError(f"{self.region} 区域没有可用的 Debian 13 或 Debian 12 系统镜像。")
 
-    def ensure_instance(self, name: str, key_pair: str, size: str) -> bool:
-        """Create the dual-stack instance ``name`` as the cheapest bundle of ``size``, or accept
-        the one cnsr created earlier.
+    def ensure_instance(
+        self, name: str, key_pair: str, size: str, alias: str, record: Callable[[str], None], *, numbered: bool = False
+    ) -> tuple[str, bool]:
+        """Create the dual-stack instance ``name`` for the node ``alias``, as the cheapest bundle of
+        ``size``, or accept the one cnsr created for it earlier (tagged ``cnsr=<alias>``).
 
-        Returns True when the instance was created by this call.
+        With ``numbered`` (a new node), a name another resource of the region holds, an instance
+        or a key pair or anything else, gives way to ``<name>-1``, ``<name>-2`` and so on: names
+        are unique across a region's Lightsail resources. ``record(name)`` is called before each
+        create, so that a run killed outright right after it leaves ``rm`` the name. Returns the
+        instance's name and whether this call created it.
         """
-        found = self._call_if_exists("get_instance", instanceName=name)
-        if found is not None:
-            if _has_tag(found, name):
-                return False
-            raise CnsrError(
-                f"{self.region} 区域已有同名实例 {name}，但它不是 cnsr 创建的（没有标签 {TAG_KEY}={name}）。"
-                "为免误动，已停止；请换一个别名，或先自行处理这台实例。"
-            )
-        zone = self._availability_zone()
-        blueprint = self.pick_blueprint()
-        bundle = self.pick(size).name
-        self._call(
-            "create_instances",
-            instanceNames=[name],
-            availabilityZone=zone,
-            blueprintId=blueprint,
-            bundleId=bundle,
-            keyPairName=key_pair,
-            ipAddressType="dualstack",
-            tags=[{"key": TAG_KEY, "value": name}],
+        made: dict[str, str] = {}
+        for number in range(NAME_TRIES if numbered else 1):
+            candidate = f"{name}-{number}" if number else name
+            found = self._call_if_exists("get_instance", instanceName=candidate)
+            if found is not None:
+                if _has_tag(found, alias):
+                    record(candidate)
+                    return candidate, False
+                if numbered:
+                    continue
+                raise CnsrError(
+                    f"{self.region} 区域已有同名实例 {candidate}，但它不是 cnsr 创建的（没有标签 {TAG_KEY}={alias}）。"
+                    "为免误动，已停止；请换一个别名，或先自行处理这台实例。"
+                )
+            if not made:  # read once, for the first name that is free of instances
+                made = {"zone": self._availability_zone(), "blueprint": self.pick_blueprint(), "bundle": self.pick(size).name}
+            record(candidate)
+            try:
+                self._call(
+                    "create_instances",
+                    instanceNames=[candidate],
+                    availabilityZone=made["zone"],
+                    blueprintId=made["blueprint"],
+                    bundleId=made["bundle"],
+                    keyPairName=key_pair,
+                    ipAddressType="dualstack",
+                    tags=[{"key": TAG_KEY, "value": alias}],
+                )
+            except LightsailError as exc:
+                if not name_taken(exc):
+                    raise
+                if not numbered:
+                    raise CnsrError(
+                        f"{self.region} 区域里已有名为 {candidate} 的其他 Lightsail 资源（例如 key pair），实例不能与它同名。"
+                    ) from None
+                continue
+            return candidate, True
+        raise CnsrError(
+            f"{self.region} 区域里 {name} 到 {name}-{NAME_TRIES - 1} 都已被其他 Lightsail 资源占用，请换一个别名。"
         )
-        return True
 
     def instance_tagged(self, name: str, alias: str) -> bool | None:
         """Whether instance ``name`` carries the tag ``cnsr=<alias>``; None when there is no such instance."""

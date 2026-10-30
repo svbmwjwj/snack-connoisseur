@@ -151,14 +151,43 @@ def create_instance(aws, regions: dict, zone: str, blueprints=("debian_13",), bu
            tags=[{"key": "cnsr", "value": "jp-1"}])
 
 
+def taken(aws, name: str) -> None:
+    aws.fail("create_instances", "InvalidInputException", f"Some names are already in use: {name}")
+
+
+def test_a_name_another_resource_holds_moves_to_the_next_number(aws):
+    aws.fail("get_instance", "NotFoundException", instanceName="jp-1")
+    aws.ok("get_regions", zones("available"), includeAvailabilityZones=True)
+    aws.ok("get_blueprints", {"blueprints": [{"blueprintId": "debian_13", "isActive": True}]})
+    aws.ok("get_bundles", {"bundles": BUNDLES}, includeInactive=False)
+    taken(aws, "jp-1")  # a key pair of that name, say
+    aws.fail("get_instance", "NotFoundException", instanceName="jp-1-1")
+    aws.ok("create_instances", instanceNames=["jp-1-1"], availabilityZone="ap-northeast-1a", blueprintId="debian_13",
+           bundleId="nano_3_0", keyPairName="jp-1", ipAddressType="dualstack", tags=[{"key": "cnsr", "value": "jp-1"}])
+    recorded = []
+    assert aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g", "jp-1", recorded.append, numbered=True) == ("jp-1-1", True)
+    assert recorded == ["jp-1", "jp-1-1"]  # each name on record before its create
+
+
+def test_a_strangers_instance_of_the_name_moves_to_the_next_number_when_numbered(aws):
+    aws.instance()  # jp-1, without cnsr's tag
+    aws.ok("get_instance", {"instance": {"name": "jp-1-1", "tags": [{"key": "cnsr", "value": "jp-1"}]}}, instanceName="jp-1-1")
+    assert aws.ls.ensure_instance("jp-1", "k", "2c0.5g", "jp-1", lambda name: None, numbered=True) == ("jp-1-1", False)
+
+
+def test_a_numbered_instance_is_found_again_by_its_alias_tag(aws):
+    aws.ok("get_instance", {"instance": {"name": "jp-1-2", "tags": [{"key": "cnsr", "value": "jp-1"}]}}, instanceName="jp-1-2")
+    assert aws.ls.ensure_instance("jp-1-2", "k", "2c0.5g", "jp-1", lambda name: None) == ("jp-1-2", False)
+
+
 def test_ensure_instance_creates_dualstack(aws):
     create_instance(aws, zones("available"), "ap-northeast-1a")
-    assert aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g") is True  # created in this call
+    assert aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g", "jp-1", lambda name: None) == ("jp-1", True)
 
 
 def test_ensure_instance_buys_the_cheapest_bundle_of_the_size(aws):
     create_instance(aws, zones("available"), "ap-northeast-1a", bundle_id="micro_3_0")
-    aws.ls.ensure_instance("jp-1", "jp-1", "1c1g")
+    aws.ls.ensure_instance("jp-1", "jp-1", "1c1g", "jp-1", lambda name: None)
 
 
 def test_offers_leave_out_ipv6_only_inactive_and_windows_bundles(aws):
@@ -185,12 +214,12 @@ def test_pick_without_a_bundle_of_the_size_is_an_error(aws):
 ])
 def test_the_zone_is_the_first_available_one_of_the_region(aws, regions, zone):
     create_instance(aws, regions, zone, blueprints=("debian_12",))
-    aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g")
+    aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g", "jp-1", lambda name: None)
 
 
 def test_ensure_instance_reuses_tagged(aws):
     aws.instance(tags=[{"key": "other", "value": "x"}, {"key": "cnsr", "value": "jp-1"}])
-    assert aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g") is False
+    assert aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g", "jp-1", lambda name: None) == ("jp-1", False)
 
 
 @pytest.mark.parametrize("fields", [{}, {"tags": []}, {"tags": [{"key": "cnsr", "value": "jp-2"}]},
@@ -198,7 +227,7 @@ def test_ensure_instance_reuses_tagged(aws):
 def test_ensure_instance_refuses_untagged(aws, fields):
     aws.instance(**fields)
     with pytest.raises(CnsrError, match="同名实例") as caught:
-        aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g")
+        aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g", "jp-1", lambda name: None)
     assert "jp-1" in str(caught.value)
 
 

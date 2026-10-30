@@ -57,11 +57,14 @@ def _ensure_instance(ctx: DeployContext) -> None:
             ours = _confirm_free_static_ip(ctx, ip_name, name)
     ctx.deps.ui.detail(f"准备 Lightsail 实例 {name}（区域 {ctx.req.region}，已有就沿用）。")
     key_pair = lightsail.ensure_key_pair(node.ssh.key_name, ctx.key.line)
-    # On record before it exists: a run killed outright right after the create leaves rm a name.
-    node.instance_name = name
-    ctx.save()
-    # Also an instance the record names that was deleted by hand and is created again now.
-    ctx.new_instance = lightsail.ensure_instance(name, key_pair, ctx.req.size)
+
+    def record(chosen: str) -> None:  # on record before it exists, so that rm finds it after a crash
+        node.instance_name = chosen
+        ctx.save()
+
+    # A new node takes the first free name; one the record names is created again under it.
+    numbered = node.instance_name is None
+    name, ctx.new_instance = lightsail.ensure_instance(name, key_pair, ctx.req.size, node.alias, record, numbered=numbered)
     lightsail.wait_running(name)
     if node.static_ip_reused:
         static_ip.take(ctx, name)

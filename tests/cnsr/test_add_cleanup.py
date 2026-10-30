@@ -61,10 +61,13 @@ def test_the_instance_is_on_record_before_it_exists(fake_deps, monkeypatch):
     seen = []
     create = fake_deps.lightsail.ensure_instance
 
-    def ensure_instance(name, key_pair, size):
-        node = fake_deps.node()
-        seen.append(node and node.instance_name)
-        return create(name, key_pair, size)
+    def ensure_instance(name, key_pair, size, alias, record, *, numbered=False):
+        def recorded(chosen):
+            record(chosen)
+            node = fake_deps.node()
+            seen.append(node and node.instance_name)
+
+        return create(name, key_pair, size, alias, recorded, numbered=numbered)
 
     monkeypatch.setattr(fake_deps.lightsail, "ensure_instance", ensure_instance)
     assert run_up(fake_deps, aws="jp-tokyo") == 0

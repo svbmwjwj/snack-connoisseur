@@ -82,6 +82,11 @@ def reason_for(code: str, message: str) -> str:
     return _REASONS.get(code) or f"AWS 返回 {code or '未知错误'}：{message or '没有详情'}"
 
 
+def name_taken(error: LightsailError) -> bool:
+    """Whether a create failed because another resource of the region has the name."""
+    return error.code == "InvalidInputException" and "already in use" in error.aws_message.lower()
+
+
 def not_attached(error: LightsailError) -> bool:
     return error.code == "InvalidInputException" and "attach" in error.aws_message.lower()
 

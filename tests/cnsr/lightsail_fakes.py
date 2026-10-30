@@ -35,6 +35,7 @@ class FakeLightsail:
     (``AWS_IP`` otherwise); only those are found by address. With ``attach_error`` set,
     ``ensure_static_ip`` allocates the IP and then fails to attach it, as AWS may. ``bundles``
     is what ``offers`` lists, and ``created`` maps each instance created to its bundle.
+    ``taken`` holds the names other resources of the region have (a key pair, say).
     """
 
     def __init__(self) -> None:
@@ -49,6 +50,7 @@ class FakeLightsail:
         self.attach_error: CnsrError | None = None
         self.bundles: list[Offer] = default_bundles()
         self.created: dict[str, str] = {}
+        self.taken: set[str] = set()
 
     def names(self) -> list[str]:
         return [call[0] for call in self.calls]
@@ -68,15 +70,23 @@ class FakeLightsail:
             raise CnsrError(f"没有 {size} 规格的 Lightsail 套餐。")
         return found
 
-    def ensure_instance(self, name: str, key_pair: str, size: str) -> bool:
-        self.calls.append(("ensure_instance", name, key_pair))
-        if self.instances.get(name) is False:
-            raise CnsrError(f"已有同名实例 {name}，但它不是 cnsr 创建的。")
-        created = name not in self.instances
-        if created:
-            self.created[name] = pick(self.bundles, size).name
-        self.instances[name] = True
-        return created
+    def ensure_instance(self, name, key_pair, size, alias, record, *, numbered=False) -> tuple[str, bool]:
+        for number in range(10 if numbered else 1):
+            candidate = f"{name}-{number}" if number else name
+            if self.instances.get(candidate) is True:
+                self.calls.append(("ensure_instance", candidate, key_pair))
+                record(candidate)
+                return candidate, False
+            if candidate in self.instances or candidate in self.taken:
+                if numbered:
+                    continue
+                raise CnsrError(f"已有同名实例或资源 {candidate}。")
+            self.calls.append(("ensure_instance", candidate, key_pair))
+            record(candidate)
+            self.created[candidate] = pick(self.bundles, size).name
+            self.instances[candidate] = True
+            return candidate, True
+        raise CnsrError(f"{name} 到 {name}-9 都已被占用。")
 
     def wait_running(self, name: str) -> None:
         self.calls.append(("wait_running", name))

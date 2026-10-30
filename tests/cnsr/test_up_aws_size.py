@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from deploy_fakes import SIZE_MENU, run_up
+from deploy_fakes import SIZE_MENU, run_rm, run_up
 from lightsail_fakes import bundle
 
 from cnsr.sizes import describe, every, parse, pick
@@ -127,3 +127,21 @@ def test_the_size_lines_line_up_in_columns(fake_deps):
     assert run_up(fake_deps, aws="sg", size=SIZE_MENU) == 0
     lines = [line for line in fake_deps.terminal.screen.splitlines() if line[:3] in ("1. ", "2. ", "3. ")][:3]
     assert len({line.index("美元") for line in lines}) == 1 and len({line.index("GB 内存") for line in lines}) == 1
+
+
+def test_a_name_another_resource_holds_gives_the_instance_a_number_and_rm_finds_it(fake_deps):
+    fake_deps.lightsail.taken = {"jp-1"}  # a key pair of the alias's name, say
+    assert run_up(fake_deps, aws="sg") == 0
+    node = fake_deps.node()
+    assert node.instance_name == "jp-1-1" and fake_deps.lightsail.created == {"jp-1-1": "nano_3_0"}
+    assert fake_deps.lightsail.ips["jp-1-ip"] == "jp-1-1"
+    fake_deps.terminal.inputs = ["1"]
+    assert run_rm(fake_deps) == 0
+    assert "jp-1-1" not in fake_deps.lightsail.instances and fake_deps.lightsail.ips == {}
+
+
+def test_a_rerun_keeps_the_numbered_name(fake_deps):
+    fake_deps.lightsail.taken = {"jp-1", "jp-1-1"}
+    assert run_up(fake_deps, aws="sg") == 0
+    assert run_up(fake_deps, aws="sg") == 0
+    assert fake_deps.node().instance_name == "jp-1-2" and list(fake_deps.lightsail.instances) == ["jp-1-2"]
