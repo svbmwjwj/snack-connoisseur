@@ -49,10 +49,10 @@ POLL_SECONDS = 2
 OUT_OF_STOCK = ("resource_unavailable", "placement_error")
 
 
-def stranger_server(name: str) -> str:
-    """Why a run stops at a server ``name`` that does not carry the label ``cnsr=<name>``."""
+def stranger_server(name: str, alias: str | None = None) -> str:
+    """Why a run stops at a server ``name`` that does not carry the label ``cnsr=<alias>``."""
     return (
-        f"Hetzner 项目里已有同名服务器 {name}，但它不是 cnsr 创建的（没有标签 {TAG_KEY}={name}）。"
+        f"Hetzner 项目里已有同名服务器 {name}，但它不是 cnsr 创建的（没有标签 {TAG_KEY}={alias or name}）。"
         "为免误动，已停止；请换一个别名，或先自行处理这台服务器。"
     )
 
@@ -158,18 +158,20 @@ class Hetzner(PrimaryIps, Firewalls):
                 return name
         raise CnsrError("Hetzner 没有可用的 Debian 13 或 Debian 12 系统镜像。")
 
-    def ensure_instance(self, name: str, key: str, offer: Offer, primary_ip: str) -> bool:
+    def ensure_instance(self, name: str, key: str, offer: Offer, primary_ip: str, alias: str | None = None) -> bool:
         """Create the server ``name`` of ``offer``'s type on the Primary IP ``primary_ip``, with an
-        IPv6 of its own, or accept the one cnsr created earlier.
+        IPv6 of its own and the label ``cnsr=<alias>`` (``alias`` is ``name`` unless given), or
+        accept the one cnsr created for it earlier.
 
         Returns True when the server was created by this call. When Hetzner has no stock the
         error lists the tier's other types sold here; none is bought instead.
         """
+        alias = alias or name
         found = self._server(name)
         if found is not None:
-            if labelled(found, name):
+            if labelled(found, alias):
                 return False
-            raise CnsrError(stranger_server(name))
+            raise CnsrError(stranger_server(name, alias))
         ip = self._require_primary_ip(primary_ip)
         body = {
             "name": name,
@@ -177,7 +179,7 @@ class Hetzner(PrimaryIps, Firewalls):
             "server_type": offer.name,
             "image": self.pick_image(),
             "ssh_keys": [key],
-            "labels": labels(name),
+            "labels": labels(alias),
             "public_net": {"enable_ipv4": True, "ipv4": ip["id"], "enable_ipv6": True},
             "start_after_create": True,
         }

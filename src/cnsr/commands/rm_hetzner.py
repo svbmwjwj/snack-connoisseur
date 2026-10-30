@@ -11,14 +11,14 @@ from cnsr.deploy.context import Deps, hetzner_elsewhere, known_hetzner
 from cnsr.deploy.hetzner_host import FIREWALL_SUFFIX, STATIC_IP_SUFFIX
 from cnsr.errors import CnsrError
 from cnsr.hetzner.cloud import Hetzner
-from cnsr.hetzner.labels import TAG_KEY
+from cnsr.hetzner.labels import TAG_KEY, server_name
 from cnsr.state import Node
 
 
 def show_plan(node: Node, deps: Deps) -> str:
     """List the Hetzner resources ``rm`` deletes; return what stays."""
     ui = deps.ui
-    ui.info(f"  — Hetzner 服务器 {node.instance_name or node.alias}（区域 {node.region}，只删带 cnsr 标签的）")
+    ui.info(f"  — Hetzner 服务器 {node.instance_name or server_name(node.alias)}（区域 {node.region}，只删带 cnsr 标签的）")
     ui.info(f"  — Primary IP {node.static_ip_name or node.alias + STATIC_IP_SUFFIX}")
     ui.info(f"  — 防火墙 {node.alias}{FIREWALL_SUFFIX}")
     return "Hetzner 上的 SSH key（同项目的其他服务器可能还在用）"
@@ -34,7 +34,7 @@ def remove_hetzner(node: Node, deps: Deps) -> list[str]:
     holds it (see ``hetzner_elsewhere``).
     """
     alias = node.alias
-    name = node.instance_name or alias
+    name = node.instance_name or server_name(alias)
     ip_name = node.static_ip_name or f"{alias}{STATIC_IP_SUFFIX}"
     try:
         hetzner = _hetzner(node, deps)

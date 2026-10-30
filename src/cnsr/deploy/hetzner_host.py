@@ -13,6 +13,7 @@ from cnsr.deploy.context import DeployContext, hetzner_elsewhere
 from cnsr.errors import CnsrError
 from cnsr import sizes
 from cnsr.hetzner.cloud import stranger_server
+from cnsr.hetzner.labels import server_name
 
 STATIC_IP_SUFFIX = "-ip"
 FIREWALL_SUFFIX = "-fw"
@@ -28,12 +29,12 @@ def ensure_server(ctx: DeployContext) -> None:
     knows only root on 22 and has nothing on it.
     """
     node, hetzner, ui = ctx.node, ctx.hetzner, ctx.deps.ui
-    name = node.instance_name or node.alias
+    name = node.instance_name or server_name(node.alias)
     ip_name = node.static_ip_name or f"{node.alias}{STATIC_IP_SUFFIX}"
     ui.detail(f"准备 Hetzner 服务器 {name}（区域 {ctx.req.region}，已有就沿用）。")
     tagged = hetzner.instance_tagged(name, node.alias)
     if tagged is False:
-        raise CnsrError(stranger_server(name))
+        raise CnsrError(stranger_server(name, node.alias))
     offer = ctx.offer
     if offer is None and tagged is None:
         elsewhere = hetzner_elsewhere(ctx.deps, ctx.req.region, name, node.alias)
@@ -47,7 +48,7 @@ def ensure_server(ctx: DeployContext) -> None:
     # On record before the server exists: a run killed outright right after the create leaves rm a name.
     node.static_ip_name, node.instance_name = ip_name, name
     ctx.save()
-    ctx.new_instance = hetzner.ensure_instance(name, key, offer, ip_name)
+    ctx.new_instance = hetzner.ensure_instance(name, key, offer, ip_name, node.alias)
     hetzner.wait_running(name)
     node.ipv6 = hetzner.instance_ipv6(name)
     if ctx.new_instance:
@@ -101,7 +102,7 @@ def apply_firewall(ctx: DeployContext) -> None:
     node = ctx.node
     ctx.hetzner.ensure_firewall(firewall_name(ctx), node.alias)
     allow_ssh(ctx, *([22] if node.ssh.user == "root" else []), node.ssh.port)
-    ctx.hetzner.attach_firewall(firewall_name(ctx), node.instance_name or node.alias)
+    ctx.hetzner.attach_firewall(firewall_name(ctx), node.instance_name or server_name(node.alias))
 
 
 def allow_ssh(ctx: DeployContext, *ssh_ports: int) -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from deploy_fakes import run_up
+from deploy_fakes import AGENT, agent_key, run_rm, run_up
 from hetzner_fakes import HZ_IP, HZ_IPV6, FakeHetzner
 
 from cnsr import features, localconf
@@ -50,10 +50,10 @@ def test_the_primary_ip_and_server_are_on_record_before_the_server_exists(hz, mo
     seen = []
     create = hz.hetzner.ensure_instance
 
-    def ensure_instance(name, key, offer, primary_ip):
+    def ensure_instance(name, key, offer, primary_ip, alias=None):
         node = hz.node()
         seen.append((node.static_ip_name, node.instance_name))
-        return create(name, key, offer, primary_ip)
+        return create(name, key, offer, primary_ip, alias)
 
     monkeypatch.setattr(hz.hetzner, "ensure_instance", ensure_instance)
     assert deploy(hz) == 0
@@ -164,3 +164,14 @@ def test_a_stranger_server_of_the_alias_stops_the_run(hz):
     assert deploy(hz) == 1
     assert "不是 cnsr 创建的" in hz.terminal.text
     assert hz.hetzner.servers == {"jp-1": False}  # left alone, also by the cleanup
+
+
+def test_an_alias_with_an_underscore_gets_a_hostname_as_its_server_name(hz):
+    hz.agents[AGENT].append(agent_key("de_hz"))
+    assert run_up(hz, "de_hz", hetzner="sg", size="1c1g") == 0
+    node = hz.node("de_hz")
+    assert node.instance_name == "de-hz" and "de-hz" in hz.hetzner.servers
+    assert node.static_ip_name == "de_hz-ip"
+    hz.terminal.inputs = ["1"]
+    assert run_rm(hz, "de_hz") == 0
+    assert hz.hetzner.servers == {} and hz.node("de_hz") is None

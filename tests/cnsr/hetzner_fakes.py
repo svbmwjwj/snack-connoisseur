@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 from cnsr.errors import CnsrError
@@ -95,8 +96,10 @@ class FakeHetzner:
         self.calls.append(("pick_image",))
         return "debian-13"
 
-    def ensure_instance(self, name: str, key: str, offer: Offer, primary_ip: str) -> bool:
+    def ensure_instance(self, name: str, key: str, offer: Offer, primary_ip: str, alias: str | None = None) -> bool:
         self.calls.append(("ensure_instance", name, key, offer and offer.name, primary_ip))
+        if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?", name):  # Hetzner takes a hostname only
+            raise CnsrError(f"Hetzner API 请求失败（HTTP 422）：invalid input in field 'name'（{name}）")
         if self.servers.get(name) is False:
             raise CnsrError(f"Hetzner 项目里已有同名服务器 {name}，但它不是 cnsr 创建的。")
         if name in self.servers:

@@ -7,6 +7,15 @@ from typing import Any
 TAG_KEY = "cnsr"
 
 
+def server_name(alias: str) -> str:
+    """The name of node ``alias``'s server: a hostname, so an underscore becomes a hyphen.
+
+    Hetzner takes only letters, digits, hyphens and dots in a server's name; the other
+    resources and the label keep the alias as it is.
+    """
+    return alias.replace("_", "-")
+
+
 def labels(alias: str) -> dict[str, str]:
     """The labels a new resource of node ``alias`` gets."""
     return {TAG_KEY: alias}
