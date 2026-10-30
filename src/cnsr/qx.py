@@ -18,6 +18,11 @@ def node_line(domain: str, x: XrayInfo, alias: str) -> str:
     )
 
 
+def check_url(meta: ControlMeta) -> str:
+    """The node check script a Quantumult X task runs (every minute, in each device's config)."""
+    return f"https://{meta.host}/{meta.client_token}/check.js"
+
+
 def snippet_url(meta: ControlMeta) -> str:
     """The Quantumult X subscription address: the server lines of every node."""
     return f"https://{meta.host}/{meta.client_token}/cnsr.snippet"

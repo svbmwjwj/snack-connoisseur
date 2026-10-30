@@ -427,3 +427,22 @@ def test_sdk_errors_become_chinese_messages_without_their_text(raised, fragment)
         ls.instance_ipv6("jp-1")
     text = str(caught.value)
     assert "get_instance" in text and "SECRET-DETAIL" not in text and "example.com" not in text
+
+
+# --- traffic
+
+def test_traffic_sums_this_months_inbound_and_outbound_against_the_allowance(aws):
+    from botocore.stub import ANY
+
+    aws.ok("get_instance", {"instance": {"name": "jp-1", "networking": {"monthlyTransfer": {"gbPerMonthAllocated": 1024}}}},
+           instanceName="jp-1")
+    for metric, sums in (("NetworkIn", [100, 200]), ("NetworkOut", [1000])):
+        aws.ok("get_instance_metric_data", {"metricName": metric, "metricData": [{"sum": n} for n in sums]},
+               instanceName="jp-1", metricName=metric, period=86400, startTime=ANY, endTime=ANY, unit="Bytes",
+               statistics=["Sum"])
+    assert aws.ls.traffic("jp-1") == (1300, 1024**4)
+
+
+def test_traffic_of_an_instance_that_is_gone_is_none(aws):
+    aws.fail("get_instance", "NotFoundException", instanceName="jp-1")
+    assert aws.ls.traffic("jp-1") is None

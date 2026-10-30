@@ -27,7 +27,7 @@ def test_aws_creates_instance_and_forgets_old_host_key(fake_deps):
     assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert fake_deps.lightsail.names() == [
         "pick", "static_ips", "static_ip_attachment", "ensure_key_pair", "ensure_instance", "wait_running",
-        "ensure_static_ip", "instance_ipv6", "set_firewall"]  # fmt: skip
+        "ensure_static_ip", "instance_ipv6", "set_firewall", "traffic"]  # fmt: skip; traffic: the summary's row
     assert fake_deps.lightsail.created == {"jp-1": "nano_3_0"}
     assert fake_deps.lightsail.calls[6] == ("ensure_static_ip", "jp-1", "jp-1-ip")
     node = fake_deps.node()

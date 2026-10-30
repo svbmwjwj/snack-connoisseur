@@ -14,7 +14,7 @@ from deploy_fakes import run_up
 
 from cnsr.commands import listing
 from cnsr.progress import LiveStages
-from cnsr.qx import snippet_url, v2rayn_url
+from cnsr.qx import check_url, snippet_url, v2rayn_url
 from cnsr.state import ControlMeta
 from cnsr.ui import Ui
 
@@ -110,3 +110,27 @@ def test_list_in_a_terminal_colours_the_table_and_never_breaks_an_address(fake_d
     plain = re.sub(r"\x1b\[[0-9;]*m", "", out)
     for url in (snippet_url(meta), v2rayn_url(meta)):
         assert any(line.endswith(url) for line in plain.splitlines())
+
+
+def test_list_shows_the_check_script_of_quantumult_x(fake_deps):
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
+    meta = ControlMeta.from_json(fake_deps.kv()["meta:control"])
+    _, out = run_list(fake_deps)
+    assert "圈X 检测" in out and check_url(meta) in out
+
+
+def test_list_shows_aws_traffic_in_and_out_with_a_note_on_the_shared_allowance(fake_deps):
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
+    fake_deps.lightsail.used = {"jp-1": (300 * 1024**3, 1024**4)}
+    _, out = run_list(fake_deps)
+    row = next(line for line in out.splitlines() if line.strip().startswith("jp-1 "))
+    assert "0.3 / 1 TB" in row
+    assert "AWS 流量为本月入站加出站" in out and "合用额度" in out
+
+
+def test_aws_traffic_that_cannot_be_read_is_a_dash(fake_deps):
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
+    fake_deps.lightsail.instances.clear()  # gone: no traffic to read
+    _, out = run_list(fake_deps)
+    row = next(line for line in out.splitlines() if line.strip().startswith("jp-1 "))
+    assert " - " in row or row.rstrip().endswith("-")

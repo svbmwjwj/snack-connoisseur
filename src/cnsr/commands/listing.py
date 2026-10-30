@@ -14,11 +14,12 @@ from rich.text import Text
 from cnsr import features, localconf
 from cnsr.cloudflare.control import find_control_plane
 from cnsr.commands.token_hint import saved_token_hint
-from cnsr.deploy.context import Deps, default_deps, known_hetzner
+from cnsr.aws.lightsail import Lightsail
+from cnsr.deploy.context import Deps, default_deps, known_hetzner, known_lightsail
 from cnsr.errors import CnsrError
 from cnsr.hetzner.cloud import Hetzner
 from cnsr.sizes import terabytes
-from cnsr.qx import snippet_url, v2rayn_url
+from cnsr.qx import check_url, snippet_url, v2rayn_url
 from cnsr.state import ControlMeta, Inventory, Node
 
 SOURCES = {"aws": "AWS", "hetzner": "Hetzner", "vps": "自有服务器"}
@@ -26,6 +27,9 @@ HEADER = ("别名", "功能", "来源", "域名", "IPv4", "SNI", "流量", "")
 MARKS = {features.XRAY: ("● ", "green"), features.HARDEN: ("○ ", "yellow")}  # by the last feature installed
 COLUMN_STYLES = ("bold", "", "", "dim", "", "cyan", "", "red")  # alias, domain, SNI and the missing-subscription note
 LABEL = "v2rayN 订阅  "  # the widest subscription label and its gap
+# How the traffic column reaches each cloud: the client for a region, None without credentials.
+KNOWN = {"hetzner": known_hetzner, "aws": known_lightsail}
+AWS_NOTE = "AWS 流量为本月入站加出站；同区域同套餐的实例合用额度"
 
 
 def run(ns: Namespace, deps: Deps | None = None) -> int:
@@ -60,19 +64,26 @@ def _list(deps: Deps) -> int:
     return 0
 
 
-def show(deps: Deps, nodes: list[Node], meta: ControlMeta) -> None:
+def show(deps: Deps, nodes: list[Node], meta: ControlMeta, cloud: Hetzner | Lightsail | None = None) -> None:
     """The servers as a table and, when one runs an Xray node, both subscriptions.
 
-    ``cnsr list`` shows every server so; ``cnsr up`` shows the one it deployed.
+    ``cnsr list`` shows every server so; ``cnsr up`` shows the one it deployed, reading its
+    traffic through ``cloud``, the client it deployed with.
     """
     ui = deps.ui
     traffic = _Traffic(deps)
-    for line in _table([HEADER, *(_row(node, traffic(node)) for node in nodes)]):
+    if cloud is not None and nodes:
+        traffic.preset(nodes[0], cloud)
+    rows = [_row(node, traffic(node)) for node in nodes]
+    for line in _table([HEADER, *rows]):
         ui.styled(Text("  ", no_wrap=True) + line)
+    if any(node.source == "aws" and row[6] != "-" for node, row in zip(nodes, rows)):
+        ui.styled(Text(f"  {AWS_NOTE}", style="dim", no_wrap=True))
     if not any(features.XRAY in features.installed(node) for node in nodes):
         return
     ui.info("")
     ui.styled(_subscription("圈X 订阅", snippet_url(meta)))
+    ui.styled(_subscription("圈X 检测", check_url(meta)))
     ui.styled(_subscription("v2rayN 订阅", v2rayn_url(meta)))
     ui.styled(Text(f"{' ' * cell_len(LABEL)}v2rayN 设自动更新，不要勾选通过代理更新", style="dim"))
 
@@ -83,27 +94,33 @@ def _subscription(label: str, url: str) -> Text:
 
 
 class _Traffic:
-    """A Hetzner server's outgoing traffic this billing period against its included traffic,
-    as "<used> / <included> TB"; "-" for other servers, without a token, or when the call fails.
+    """A cloud server's traffic this month against what its plan includes, as "<used> / <included>
+    TB": a Hetzner server's outgoing traffic, an AWS instance's inbound plus outgoing. "-" for a
+    vendor server, without credentials, or when the call fails.
 
-    One Hetzner client per region; nothing is asked, and a failure goes to the log only.
+    One client per cloud and region; nothing is asked, and a failure goes to the log only.
     """
 
     def __init__(self, deps: Deps) -> None:
         self._deps = deps
-        self._clients: dict[str, Hetzner | None] = {}
+        self._clients: dict[tuple[str, str], Hetzner | Lightsail | None] = {}
+
+    def preset(self, node: Node, cloud: Hetzner | Lightsail) -> None:
+        """Use ``cloud`` for ``node``'s cloud and region instead of making another client."""
+        self._clients[(node.source, node.region)] = cloud
 
     def __call__(self, node: Node) -> str:
-        if node.source != "hetzner" or node.region is None or node.instance_name is None:
+        if node.source not in KNOWN or node.region is None or node.instance_name is None:
             return "-"
+        key = (node.source, node.region)
         try:
-            if node.region not in self._clients:
-                self._clients[node.region] = known_hetzner(self._deps, node.region)
-            hetzner = self._clients[node.region]
-            found = hetzner.traffic(node.instance_name) if hetzner else None
+            if key not in self._clients:
+                self._clients[key] = KNOWN[node.source](self._deps, node.region)
+            cloud = self._clients[key]
+            found = cloud.traffic(node.instance_name) if cloud else None
         except CnsrError as exc:
-            self._clients.setdefault(node.region, None)
-            self._deps.ui.detail(f"没能读取 {node.alias} 在 Hetzner 上的流量：{exc}")
+            self._clients.setdefault(key, None)
+            self._deps.ui.detail(f"没能读取 {node.alias} 在 {SOURCES[node.source]} 上的流量：{exc}")
             return "-"
         if found is None:
             return "-"

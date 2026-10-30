@@ -191,6 +191,6 @@ def _print_summary(ctx: DeployContext) -> None:
     """The server as ``cnsr list`` shows it, with the subscriptions once it runs an Xray node."""
     node, ui = ctx.node, ctx.deps.ui
     ui.info("")
-    listing.show(ctx.deps, [node], ctx.meta)
+    listing.show(ctx.deps, [node], ctx.meta, ctx.lightsail or ctx.hetzner)
     if features.XRAY in ctx.features and not ctx.alias_switched:
         ui.warn(f"SSH 别名 {node.alias} 暂时仍指向 IP {node.ipv4}；以后运行 cnsr up {node.alias} 时会再检查并切到域名。")

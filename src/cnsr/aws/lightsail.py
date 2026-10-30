@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import UTC, datetime
 from collections.abc import Callable
 from typing import Any
 
@@ -61,6 +62,7 @@ DEFAULT_KEY_PAIR = "LightsailDefaultKeyPair"
 # What a key pair named like its node gets after its name, so that the instance can have the name.
 KEY_PAIR_SUFFIX = "-key"
 POLL_SECONDS = 5
+_GB = 1024**3
 # How many names a new instance tries: the alias, then <alias>-1 and so on.
 NAME_TRIES = 10
 
@@ -216,6 +218,28 @@ class Lightsail(StaticIps):
         """Whether instance ``name`` carries the tag ``cnsr=<alias>``; None when there is no such instance."""
         found = self._call_if_exists("get_instance", instanceName=name)
         return None if found is None else _has_tag(found, alias)
+
+    def traffic(self, name: str) -> tuple[int, int] | None:
+        """Instance ``name``'s inbound plus outbound bytes this month (UTC), and its monthly
+        allowance in bytes; None when there is no such instance.
+
+        Lightsail counts both directions against the allowance; instances of the same bundle in
+        a region share theirs, so the allowance is the instance's own share of that pool.
+        """
+        found = self._call_if_exists("get_instance", instanceName=name)
+        if found is None:
+            return None
+        allowed = (found.get("instance", {}).get("networking", {}).get("monthlyTransfer") or {}).get("gbPerMonthAllocated")
+        now = datetime.now(UTC)
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        used = 0
+        for metric in ("NetworkIn", "NetworkOut"):
+            data = self._call(
+                "get_instance_metric_data", instanceName=name, metricName=metric, period=86400,
+                startTime=start, endTime=now, unit="Bytes", statistics=["Sum"],
+            )  # fmt: skip
+            used += sum(int(point.get("sum") or 0) for point in data.get("metricData", []))
+        return used, int((allowed or 0) * _GB)
 
     def wait_running(self, name: str, timeout: int = 300) -> None:
         """Poll every ``POLL_SECONDS`` until the instance runs; any state but none, pending or running fails at once.

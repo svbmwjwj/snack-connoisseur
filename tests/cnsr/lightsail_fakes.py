@@ -51,6 +51,7 @@ class FakeLightsail:
         self.bundles: list[Offer] = default_bundles()
         self.created: dict[str, str] = {}
         self.taken: set[str] = set()
+        self.used: dict[str, tuple[int, int]] = {}  # an instance's traffic this month and its allowance
 
     def names(self) -> list[str]:
         return [call[0] for call in self.calls]
@@ -87,6 +88,10 @@ class FakeLightsail:
             self.instances[candidate] = True
             return candidate, True
         raise CnsrError(f"{name} 到 {name}-9 都已被占用。")
+
+    def traffic(self, name: str) -> tuple[int, int] | None:
+        self.calls.append(("traffic", name))
+        return self.used.get(name) if name in self.instances else None
 
     def wait_running(self, name: str) -> None:
         self.calls.append(("wait_running", name))

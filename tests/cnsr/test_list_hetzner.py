@@ -127,15 +127,15 @@ def test_one_client_per_region(hz):
     assert "Hetzner de-falkenstein 2c4g" in row(out, "de-1")
 
 
-def test_other_servers_show_a_dash_and_contact_no_one(fake_deps):
+def test_an_aws_server_asks_lightsail_not_hetzner(fake_deps):
     assert run_up(fake_deps, aws="jp-tokyo") == 0
     fake_deps.hcloud_env = HETZNER_TOKEN
     fake_deps.lightsail.calls.clear()
     code, out = run_list(fake_deps)
     assert code == 0
     line = row(out, "jp-1")
-    assert "AWS jp-tokyo" in line and line.rstrip().endswith("-")
-    assert fake_deps.calls["make_hetzner"] == [] and fake_deps.lightsail.calls == []
+    assert "AWS jp-tokyo" in line and line.rstrip().endswith("-")  # the fake has no traffic for it
+    assert fake_deps.calls["make_hetzner"] == [] and fake_deps.lightsail.calls == [("traffic", "jp-1")]
 
 
 def test_an_old_record_without_a_size_shows_the_region_only(fake_deps):
