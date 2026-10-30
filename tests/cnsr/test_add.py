@@ -10,7 +10,7 @@ from deploy_fakes import VPS_IP, preflight_output, run_up
 
 from cnsr import localconf
 from cnsr.deploy import steps
-from cnsr.qx import client_lines
+from cnsr.qx import client_lines, snippet_url, v2rayn_url
 from cnsr.scan.egress import Egress
 from cnsr.server.xray import CONFIG_PATH, NODE_DIR, XRAY_IMAGE, read_identity
 from cnsr.ssh.config import BACKUP_NAME
@@ -142,16 +142,17 @@ def test_rerun_preserves_identity(fake_deps):
     assert fake_deps.lightsail.names().count("ensure_instance") == 2  # reused, never a second create
 
 
-def test_success_prints_client_lines(fake_deps):
+def test_success_shows_the_node_as_cnsr_list_does_without_a_client_guide(fake_deps):
     assert run_up(fake_deps, aws="jp-tokyo") == 0
     text = fake_deps.terminal.text
     node = fake_deps.node()
-    meta_raw = next(kv["meta:control"] for kv in fake_deps.cloudflare.kv.values() if "meta:control" in kv)
-    assert "[server_remote]" in text and node.line in text
-    assert client_lines(ControlMeta.from_json(meta_raw)) in text
-    meta = ControlMeta.from_json(meta_raw)
-    assert f"https://{meta.host}/{meta.client_token}/v2rayn" in text
-    assert "resource-tag-regex" in text
+    meta = ControlMeta.from_json(next(kv["meta:control"] for kv in fake_deps.cloudflare.kv.values() if "meta:control" in kv))
+    assert "别名" in text and "SNI" in text  # the list's header
+    row = next(line for line in text.splitlines() if line.strip().startswith("jp-1 "))
+    assert "Xray 节点" in row and node.domain in row and node.xray.sni in row
+    assert snippet_url(meta) in text and v2rayn_url(meta) in text
+    for guide in ("[server_remote]", "resource-tag-regex", node.line, client_lines(meta), "v2rayN 不参与检测"):
+        assert guide not in text
     assert node.line.startswith(f"vless={node.domain}:443, ") and node.line.endswith(", tag=jp-1")
     assert XRAY_IMAGE not in fake_deps.terminal.screen  # the remote command lines in the log do name it
 

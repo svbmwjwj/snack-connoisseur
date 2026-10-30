@@ -14,19 +14,17 @@ from cnsr import features, localconf
 from cnsr.cloudflare.api import CloudflareClient
 from cnsr.cloudflare.control import check_token, ensure_control_plane
 from cnsr.deploy import static_ip
-from cnsr.commands import size_menu, up_questions
+from cnsr.commands import listing, size_menu, up_questions
 from cnsr.commands.up_questions import TO_FEATURES, ipv4_error
 from cnsr.commands.rm import remove_node
 from cnsr.commands.token_hint import saved_token_hint
 from cnsr.deploy.context import AddRequest, DeployContext, Deps, default_deps
 from cnsr.deploy.steps import run_pipeline
 from cnsr.errors import CnsrError
-from cnsr.qx import client_lines, v2rayn_url
 from cnsr.state import Inventory, Node, SshInfo, is_cloud
 
 # What the cleanup after a failed first deployment deletes, by cloud: the vendor and its resources.
 CLEANUP_WHAT = {"aws": ("AWS", "实例、静态 IP"), "hetzner": ("Hetzner", "服务器、Primary IP、防火墙")}
-TAG_REGEX_EXAMPLE = "^(self-built|cnsr)$"
 _ZONE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
 
 
@@ -190,27 +188,9 @@ def _zone_error(value: str) -> str | None:
 
 
 def _print_summary(ctx: DeployContext) -> None:
+    """The server as ``cnsr list`` shows it, with the subscriptions once it runs an Xray node."""
     node, ui = ctx.node, ctx.deps.ui
     ui.info("")
-    if features.XRAY not in ctx.features:
-        ssh = node.ssh
-        ui.info(f"服务器 {node.alias} 已加固：用 ssh {node.alias} 登录（用户 {ssh.user}，端口 {ssh.port}）。")
-        ui.info(f"以后要在这台服务器上部署 Xray 节点，运行 cnsr up {node.alias} 并勾选它。")
-        return
-    ui.info(f"节点 {node.alias} 已就绪：{node.domain}，SNI {node.xray.sni}。")
-    if ctx.alias_switched:
-        ui.info(f"SSH 别名 {node.alias} 已指向 {node.domain}，可以直接用 ssh {node.alias} 登录。")
-    else:
+    listing.show(ctx.deps, [node], ctx.meta)
+    if features.XRAY in ctx.features and not ctx.alias_switched:
         ui.warn(f"SSH 别名 {node.alias} 暂时仍指向 IP {node.ipv4}；以后运行 cnsr up {node.alias} 时会再检查并切到域名。")
-    ui.info("")
-    ui.info("圈X 节点行（控制端的远程资源 cnsr 里已经有它）：")
-    ui.info(node.line)
-    ui.info("")
-    ui.info("每台设备在圈X 配置里粘贴一次下面几行；分享节点时，把同样几行发给对方：")
-    ui.info(client_lines(ctx.meta))
-    ui.info("")
-    ui.info(f"再把 cnsr 加进策略组的 resource-tag-regex，例如 {TAG_REGEX_EXAMPLE}。")
-    ui.info("")
-    ui.info("用 v2rayN 的设备添加下面这个订阅地址，并设自动更新（建议 60 分钟），不要勾选通过代理更新：")
-    ui.info(v2rayn_url(ctx.meta))
-    ui.info("v2rayN 不参与检测：SNI 被封时由圈X 设备发现并换好，v2rayN 下次更新订阅时跟上。")

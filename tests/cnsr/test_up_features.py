@@ -91,7 +91,7 @@ def test_harden_only_on_aws_runs_three_steps_and_opens_only_ssh(fake_deps):
     assert not fake_deps.calls["scan"] and not fake_deps.server.did("install-docker.sh")
     node = fake_deps.node()
     assert node.features == HARDEN_ONLY and node.xray is None and node.line is None
-    assert "已加固" in fake_deps.terminal.out.getvalue() and "圈X" not in fake_deps.terminal.out.getvalue()
+    assert "仅加固" in fake_deps.terminal.out.getvalue() and "圈X" not in fake_deps.terminal.out.getvalue()
 
 
 def test_harden_only_on_a_vendor_server_opens_no_app_port(fake_deps):

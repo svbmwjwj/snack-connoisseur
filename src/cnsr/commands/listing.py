@@ -19,7 +19,7 @@ from cnsr.errors import CnsrError
 from cnsr.hetzner.cloud import Hetzner
 from cnsr.sizes import terabytes
 from cnsr.qx import snippet_url, v2rayn_url
-from cnsr.state import Inventory, Node
+from cnsr.state import ControlMeta, Inventory, Node
 
 SOURCES = {"aws": "AWS", "hetzner": "Hetzner", "vps": "自有服务器"}
 HEADER = ("别名", "功能", "来源", "域名", "IPv4", "SNI", "流量", "")
@@ -56,16 +56,25 @@ def _list(deps: Deps) -> int:
         ui.info("控制端里还没有服务器。")
         return 0
     ui.styled(Text.assemble(("服务器", "bold"), (f"  {len(nodes)} 台", "dim")))
+    show(deps, nodes, meta)
+    return 0
+
+
+def show(deps: Deps, nodes: list[Node], meta: ControlMeta) -> None:
+    """The servers as a table and, when one runs an Xray node, both subscriptions.
+
+    ``cnsr list`` shows every server so; ``cnsr up`` shows the one it deployed.
+    """
+    ui = deps.ui
     traffic = _Traffic(deps)
     for line in _table([HEADER, *(_row(node, traffic(node)) for node in nodes)]):
         ui.styled(Text("  ", no_wrap=True) + line)
     if not any(features.XRAY in features.installed(node) for node in nodes):
-        return 0
+        return
     ui.info("")
     ui.styled(_subscription("圈X 订阅", snippet_url(meta)))
     ui.styled(_subscription("v2rayN 订阅", v2rayn_url(meta)))
     ui.styled(Text(f"{' ' * cell_len(LABEL)}v2rayN 设自动更新，不要勾选通过代理更新", style="dim"))
-    return 0
 
 
 def _subscription(label: str, url: str) -> Text:

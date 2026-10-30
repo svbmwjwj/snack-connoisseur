@@ -78,7 +78,8 @@ def test_harden_only_stops_after_hardening(hz):
     node = hz.node()
     assert node.ssh.user == "admin" and node.line is None and node.features == [features.HARDEN]
     assert not hz.server.did("install-docker.sh")
-    assert f"服务器 jp-1 已加固：用 ssh jp-1 登录（用户 admin，端口 {node.ssh.port}）" in hz.terminal.text
+    row = next(line for line in hz.terminal.text.splitlines() if line.strip().startswith("jp-1 "))
+    assert "仅加固" in row and "订阅" not in hz.terminal.text
 
 
 def test_the_stage_list_names_hetzner_and_the_region(hz):
