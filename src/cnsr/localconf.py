@@ -13,10 +13,11 @@ KEYS = (
     "CLOUDFLARE_ZONE",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
+    "HCLOUD_TOKEN",
     "CNSR_SSH_AGENT",
 )
 # The credentials the run log must never show; CLOUDFLARE_ZONE and CNSR_SSH_AGENT are not secret.
-SECRET_KEYS = ("CLOUDFLARE_API_TOKEN", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+SECRET_KEYS = ("CLOUDFLARE_API_TOKEN", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "HCLOUD_TOKEN")
 
 
 def load(path: Path) -> dict[str, str]:

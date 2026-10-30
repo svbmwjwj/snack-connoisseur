@@ -35,7 +35,14 @@ def test_ssh_paths_live_under_home_ssh():
 
 
 def test_keys_are_in_documented_order():
-    assert localconf.KEYS == ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ZONE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "CNSR_SSH_AGENT")
+    assert localconf.KEYS == (
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_ZONE",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "HCLOUD_TOKEN",
+        "CNSR_SSH_AGENT",
+    )
 
 
 def test_load_tolerates_crlf_bom_quotes(tmp_path):
@@ -204,9 +211,10 @@ def test_load_registers_the_credentials(tmp_path, monkeypatch):
     path = tmp_path / "secrets.env"
     path.write_text(
         "CLOUDFLARE_API_TOKEN=cf-token-123456\nCLOUDFLARE_ZONE=example.com\n"
-        "AWS_ACCESS_KEY_ID=AKIAEXAMPLE12345\nAWS_SECRET_ACCESS_KEY=aws-secret-123456\n",
+        "AWS_ACCESS_KEY_ID=AKIAEXAMPLE12345\nAWS_SECRET_ACCESS_KEY=aws-secret-123456\n"
+        "HCLOUD_TOKEN=hz-token-123456\n",
         encoding="utf-8",
     )
     localconf.load(path)
-    assert sorted(registered) == ["AKIAEXAMPLE12345", "aws-secret-123456", "cf-token-123456"]
+    assert sorted(registered) == ["AKIAEXAMPLE12345", "aws-secret-123456", "cf-token-123456", "hz-token-123456"]
     assert "example.com" not in registered

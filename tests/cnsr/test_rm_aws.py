@@ -321,12 +321,14 @@ def test_an_unrecorded_static_ip_proven_cnsrs_is_recorded_before_it_is_released(
 def test_add_that_stops_at_a_strangers_static_ip_leaves_it_alone_for_rm(fake_deps):
     fake_deps.lightsail.ips["jp-1-ip"] = "web"  # the user's own, attached to their instance "web"
     fake_deps.lightsail.delete_instance_errors = ["删除实例 jp-1 失败"]  # add's own cleanup leaves it to rm
+    terminal_ui, fake_deps.deps.ui = fake_deps.deps.ui, fake_deps.terminal.ui(interactive=False)  # no static IP menu
 
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert "绑在实例 web 上" in fake_deps.terminal.text
     assert names_in_record(fake_deps) == ("jp-1", None)  # the name is recorded only once the IP is cnsr's
 
     fake_deps.lightsail.delete_instance_errors = []
+    fake_deps.deps.ui = terminal_ui
     code, out = remove(fake_deps)
 
     assert code == 0
@@ -355,5 +357,5 @@ def test_missing_aws_credentials_keep_the_record(fake_deps):
     localconf.save(fake_deps.deps.conf_path, {**values, "AWS_ACCESS_KEY_ID": "AKIDSAVED", "AWS_SECRET_ACCESS_KEY": "s"})
     code, _ = remove(fake_deps)
     assert code == 0
-    assert fake_deps.calls["make_lightsail"] == [("jp", ("AKIDSAVED", "s"))]
+    assert fake_deps.calls["make_lightsail"] == [("jp-tokyo", ("AKIDSAVED", "s"))]
     assert fake_deps.node() is None

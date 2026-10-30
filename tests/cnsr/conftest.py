@@ -12,6 +12,7 @@ import httpx
 import pytest
 from deploy_fakes import DeployFakes
 from fakes import FakeDnsZone
+from hetzner_harness import Api
 from lightsail_harness import Aws
 from tls_server import Certificate, TlsServer, default_certificate
 
@@ -289,3 +290,9 @@ def aws():
     with harness.stubber:
         yield harness
         harness.stubber.assert_no_pending_responses()
+
+
+@pytest.fixture
+def hz_api() -> Api:
+    """A real HetznerClient for ``de-falkenstein`` answered by a scripted router, with a fake clock."""
+    return Api()

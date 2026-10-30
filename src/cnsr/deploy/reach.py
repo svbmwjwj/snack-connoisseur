@@ -1,10 +1,11 @@
-"""Why this computer cannot reach a server's SSH port, and a new IP for a blocked AWS one.
+"""Why this computer cannot reach a server's SSH port, and a new IP for a blocked cloud one.
 
 The control plane tries the port from outside. Open from there means the trouble is between
 this computer and the server: a proxy left on, a network that blocks the port, or an address
 blocked as a whole. The last shows as a timeout on 443 too (nothing listens there yet, so an
 address that answers refuses). A static IP cnsr allocated for a first deployment is then
-released and allocated again, up to ``IP_SWAPS`` times.
+released and allocated again, up to ``IP_SWAPS`` times; a Hetzner server is powered off
+meanwhile and gets a new Primary IP (see ``hetzner_host.swap_primary_ip``).
 """
 
 from __future__ import annotations
@@ -12,8 +13,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from cnsr.deploy import hetzner_host
 from cnsr.deploy.context import DeployContext
 from cnsr.errors import CnsrError
+from cnsr.state import is_cloud
 
 IP_SWAPS = 3
 PATH_PORTS = (80, 443)
@@ -58,10 +61,15 @@ def diagnose(ctx: DeployContext, host: str, port: int, *, announce: bool = True)
 
 
 def can_swap(ctx: DeployContext) -> bool:
-    """A static IP cnsr allocated, on a node that was never deployed, with swaps left."""
+    """A static IP cnsr allocated, on a node that was never deployed, with swaps left.
+
+    A node a finished run left anything on is in use, even with no client line (hardening alone):
+    its server is never powered off nor its IP replaced.
+    """
     node = ctx.node
     return (
-        ctx.req.source == "aws"
+        is_cloud(ctx.req.source)
+        and not ctx.in_use
         and not node.static_ip_reused
         and node.static_ip_name is not None
         and node.line is None
@@ -72,6 +80,16 @@ def can_swap(ctx: DeployContext) -> bool:
 def swap_ip(ctx: DeployContext) -> None:
     """Release the node's blocked static IP and attach a newly allocated one."""
     node, deps = ctx.node, ctx.deps
+    if ctx.req.source == "hetzner":
+        ctx.ip_swaps += 1
+        deps.ui.info(
+            f"Primary IP {node.ipv4} 从这台电脑整个连不上，从外部却能连上，多半已被墙；"
+            f"关机后换一个新 IP 再开机（第 {ctx.ip_swaps} 次）。"
+        )
+        hetzner_host.swap_primary_ip(ctx)
+        deps.forget_host_key(node.ipv4, node.ssh.port)
+        deps.ui.detail(f"新的 Primary IP：{node.ipv4}。")
+        return
     blocked = node.ipv4
     while True:
         ctx.ip_swaps += 1
@@ -135,7 +153,7 @@ def explain(ctx: DeployContext, verdict: Verdict, err: CnsrError) -> CnsrError:
 
 def _blocked_advice(ctx: DeployContext) -> str:
     node = ctx.node
-    if ctx.req.source != "aws":
+    if not is_cloud(ctx.req.source):
         return "被墙的 IP 不能用作节点，请联系服务器厂商更换 IP。"
     if node.static_ip_reused:
         return "这是你用 --static-ip 指定的 IP，cnsr 不会释放它：换一个静态 IP，或不带 --static-ip 重跑，让 cnsr 自动申请。"

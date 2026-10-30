@@ -5,6 +5,7 @@ from __future__ import annotations
 from deploy_fakes import VPS_IP, run_up
 from lightsail_fakes import AWS_IP
 
+from cnsr import features
 from cnsr.deploy import reach
 
 VPS_ANSWERS = ["", "", "已保存"]  # SSH user and port as offered, then the new password saved
@@ -18,7 +19,7 @@ def released(fake_deps) -> list:
 def test_a_blocked_ip_is_swapped_for_a_new_one(fake_deps):
     fake_deps.server.blocked_hosts = {AWS_IP}
     fake_deps.lightsail.fresh_addresses = [AWS_IP, FRESH[0]]
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert released(fake_deps) == [("release_static_ip", "jp-1-ip")]
     assert fake_deps.node().ipv4 == FRESH[0]
     # 80: a new Lightsail instance's firewall opens it (and 22) only; nothing listens there
@@ -31,7 +32,7 @@ def test_a_blocked_ip_is_swapped_for_a_new_one(fake_deps):
 def test_the_swaps_stop_after_three(fake_deps):
     fake_deps.server.blocked_hosts = {AWS_IP, *FRESH}
     fake_deps.lightsail.fresh_addresses = [AWS_IP, *FRESH]
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert len(released(fake_deps)) >= reach.IP_SWAPS  # the swaps, then the clean-up
     assert f"已经换了 {reach.IP_SWAPS} 次 IP" in fake_deps.terminal.text
 
@@ -41,7 +42,7 @@ def test_your_own_static_ip_is_never_swapped(fake_deps):
     fake_deps.lightsail.ips["spare"] = None
     fake_deps.lightsail.addresses["spare"] = kept
     fake_deps.server.blocked_hosts = {kept}
-    assert run_up(fake_deps, aws="jp", static_ip=kept) == 1
+    assert run_up(fake_deps, aws="jp-tokyo", static_ip=kept) == 1
     assert released(fake_deps) == [] and fake_deps.lightsail.ips == {"spare": None}
     text = fake_deps.terminal.text
     assert f"{kept} 从这台电脑整个连不上" in text and "不带 --static-ip" in text
@@ -56,9 +57,18 @@ def test_a_vendor_servers_blocked_ip_is_for_the_vendor(fake_deps):
 
 
 def test_a_deployed_node_keeps_its_ip(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     fake_deps.server.blocked_hosts = {fake_deps.node().ipv4, fake_deps.node().domain}
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
+    assert released(fake_deps) == []
+    assert "整个连不上" in fake_deps.terminal.text
+
+
+def test_a_node_hardened_alone_keeps_its_ip(fake_deps):
+    assert run_up(fake_deps, aws="jp-tokyo", features=[features.HARDEN]) == 0
+    assert fake_deps.node().line is None
+    fake_deps.server.blocked_hosts = {fake_deps.node().ipv4, fake_deps.node().domain}
+    assert run_up(fake_deps, aws="jp-tokyo", features=[features.HARDEN]) == 1
     assert released(fake_deps) == []
     assert "整个连不上" in fake_deps.terminal.text
 
@@ -66,13 +76,13 @@ def test_a_deployed_node_keeps_its_ip(fake_deps):
 def test_the_same_address_again_counts_as_a_swap(fake_deps):
     fake_deps.server.blocked_hosts = {AWS_IP}
     fake_deps.lightsail.fresh_addresses = [AWS_IP, AWS_IP, FRESH[0]]
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert len(released(fake_deps)) == 2 and fake_deps.node().ipv4 == FRESH[0]
 
 
 def test_the_blocked_ip_is_detached_and_settled_before_it_is_released(fake_deps):
     fake_deps.server.blocked_hosts = {AWS_IP}
     fake_deps.lightsail.fresh_addresses = [AWS_IP, FRESH[0]]
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     names = fake_deps.lightsail.names()
     assert names.index("detach_static_ip") < names.index("release_static_ip")

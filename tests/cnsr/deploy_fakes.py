@@ -1,4 +1,4 @@
-"""Test doubles for ``cnsr up``: the server, Lightsail, the terminal and the wiring into ``Deps``.
+"""Test doubles for ``cnsr up``: the server, Lightsail, Hetzner, the terminal and the wiring into ``Deps``.
 
 The ``fake_deps`` fixture in ``conftest.py`` builds ``DeployFakes`` with a Cloudflare account
 (control plane, KV and the zone's DNS records) made of ``FakeCloudflare`` and ``FakeDnsZone``.
@@ -18,6 +18,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from harden_fakes import NOT_LOADED, STOP_DENIED
+from hetzner_fakes import FakeHetzner
 from key_samples import ED, RSA
 from lightsail_fakes import AWS_IP, AWS_IPV6, FakeLightsail
 from terminal_fakes import Terminal
@@ -269,7 +270,9 @@ class DeployFakes:
     """Everything ``cnsr up`` talks to, wired into ``deps``; Cloudflare comes from the fixture.
 
     The attributes are read at call time, so a test changes behaviour by setting them.
-    ``secrets.env`` starts with a Cloudflare token and zone.
+    ``secrets.env`` starts with a Cloudflare token and zone; ``hcloud_env`` is what
+    ``HCLOUD_TOKEN`` holds in the environment (None: unset). ``hetzner`` is every token's
+    project, except the tokens ``other_projects`` maps to a Hetzner of their own.
     """
 
     def __init__(self, home: Path, cf_client: CloudflareClient, cloudflare, dns) -> None:
@@ -277,6 +280,9 @@ class DeployFakes:
         self.terminal = Terminal()
         self.server = FakeServer()
         self.lightsail = FakeLightsail()
+        self.hetzner = FakeHetzner()
+        self.hcloud_env: str | None = None
+        self.other_projects: dict[str, FakeHetzner] = {}
         self.agents: dict[str | None, list[AgentKey]] = {AGENT: [agent_key("jp-1"), agent_key("other", RSA)]}
         # This computer's direct address and the one the node sees it come from. A list gives the
         # answer of each check in turn, its last one repeating.
@@ -315,6 +321,10 @@ class DeployFakes:
             sleep=self._sleep,
             clock=lambda: self.now,
             aws_default_credentials=lambda: self.aws_chain,
+            make_hetzner=lambda region, token: self._record(
+                "make_hetzner", region, token, result=self.other_projects.get(token, self.hetzner)
+            ),
+            hcloud_env_token=lambda: self.hcloud_env,
             forget_host_key=self._forget,
             install_key=self._install_key,
             public_resolves=lambda name, rtype, expected: self._record("public", name, rtype, expected, result=self.public_dns),
@@ -420,21 +430,43 @@ class DeployFakes:
         self.server.key_installed = True
 
 
+# ``size`` for ``run_up`` and ``up_args``: no ``--size`` with ``--aws``, so the size menu asks.
+SIZE_MENU = object()
+
+
 def run_up(
     fakes: DeployFakes,
     alias: str | None = "jp-1",
     *,
     aws: str | None = None,
+    hetzner: str | None = None,
     ip: str | None = None,
     static_ip: str | None = None,
+    size: str | None = None,
     features: list[str] | None = ALL_FEATURES,
+    to: str | None = None,
 ) -> int:
     """Run ``cnsr up`` as the command line would, against ``fakes``.
 
-    ``features`` stand in for the feature menu's answer; None shows the menu.
+    ``features`` stand in for the feature menu's answer; None shows the menu, or follows ``to``,
+    the ``--to`` argument.
     """
-    ns = argparse.Namespace(command="up", alias=alias, aws=aws, ip=ip, static_ip=static_ip, features=features)
+    ns = up_args(alias, aws=aws, hetzner=hetzner, ip=ip, static_ip=static_ip, size=size, features=features, to=to)
     return up.run(ns, fakes.deps)
+
+
+def up_args(alias: str | None = "jp-1", *, features: list[str] | None = ALL_FEATURES, **options) -> argparse.Namespace:
+    """The arguments of ``cnsr up`` as the command line parses them; ``options`` are the flags given.
+
+    ``--aws`` comes with ``--size 2c0.5g`` unless ``size`` is given; ``SIZE_MENU`` leaves it
+    out, so that the size menu asks.
+    """
+    if options.get("aws") and options.get("size") is None:
+        options["size"] = "2c0.5g"
+    if options.get("size") is SIZE_MENU:
+        options["size"] = None
+    flags = {"aws": None, "hetzner": None, "ip": None, "static_ip": None, "size": None, "to": None, **options}
+    return argparse.Namespace(command="up", alias=alias, features=features, **flags)
 
 
 def run_rm(fakes: DeployFakes, alias: str = "jp-1") -> int:

@@ -21,6 +21,9 @@ from cnsr.cloudflare import control, dns
 from cnsr.cloudflare.api import CloudflareClient
 from cnsr.cloudflare.control import ProbeResult
 from cnsr.errors import CnsrError
+from cnsr.hetzner.api import HetznerClient
+from cnsr.hetzner.cloud import Hetzner
+from cnsr.sizes import Offer
 from cnsr.menu import terminal_select, terminal_select_many
 from cnsr.progress import terminal_display
 from cnsr.scan import egress, ipv6_reach, tcp_reach
@@ -32,7 +35,7 @@ from cnsr.server.preflight import Facts
 from cnsr.ssh import agent, keygen, remote
 from cnsr.ssh.agent import SESSION_AGENT, AgentKey
 from cnsr.ssh.remote import Remote, Target
-from cnsr.state import ControlMeta, Inventory, Node
+from cnsr.state import ControlMeta, Inventory, Node, is_cloud
 from cnsr.ui import Ui
 
 SECRETS_FILE = "secrets.env"
@@ -45,13 +48,19 @@ class AddRequest:
     """Where the node runs and how cnsr logs in to it, as gathered by ``cnsr up``."""
 
     alias: str
-    source: Literal["aws", "vps"]
+    source: Literal["aws", "vps", "hetzner"]
     region: str | None
     ip: str | None
     user: str
     port: int
     # The address of a static IP the user already has in the region (cnsr up --static-ip).
     static_ip: str | None = None
+    # The free static IP ``<alias>-ip`` was picked in cnsr up's menu: step 1 does not ask again.
+    take_free_ip: bool = False
+    # The size of a new cloud server (cnsr up --size).
+    size: str | None = None
+    # The cnsr node whose static IP, picked in cnsr up's menu, the new node takes over.
+    replaces: str | None = None
 
 
 def _aws_default_credentials() -> bool:
@@ -77,13 +86,23 @@ def _make_lightsail(region_code: str, credentials: tuple[str, str] | None) -> Li
     return Lightsail(region_code, client=client)
 
 
+def _make_hetzner(region_code: str, token: str) -> Hetzner:
+    """Hetzner for one region, in the project ``token`` belongs to."""
+    return Hetzner(region_code, HetznerClient(token))
+
+
+def _hcloud_env_token() -> str | None:
+    """The token in ``HCLOUD_TOKEN``, the variable Hetzner's own CLI reads; None when unset or empty."""
+    return os.environ.get("HCLOUD_TOKEN") or None
+
+
 @dataclass
 class Deps:
     """Everything a command reaches outside the process. Tests pass fakes; see ``default_deps``.
 
     The fields after ``sleep`` are further seams to ssh-keygen, OpenSSH's password login,
-    DNS, boto3's credential chain and this computer's IPv6 test of the node; their defaults
-    are the real functions.
+    DNS, boto3's credential chain, Hetzner and its token in the environment, and this
+    computer's IPv6 test of the node; their defaults are the real functions.
     """
 
     ui: Ui
@@ -106,6 +125,8 @@ class Deps:
     # What every wait measures its limit on (cnsr.waiting.Deadline).
     clock: Callable[[], float] = time.monotonic
     aws_default_credentials: Callable[[], bool] = _aws_default_credentials
+    make_hetzner: Callable[[str, str], Hetzner] = _make_hetzner
+    hcloud_env_token: Callable[[], str | None] = _hcloud_env_token
     forget_host_key: Callable[[str, int], None] = remote.forget_host_key
     install_key: Callable[[Target, str, Path], None] = remote.install_key_with_password
     public_resolves: Callable[[str, str, set[str]], bool] = dns.public_resolves
@@ -130,6 +151,37 @@ def known_lightsail(deps: Deps, region: str) -> Lightsail | None:
     if saved[0] and saved[1]:
         return deps.make_lightsail(region, saved)
     return None
+
+
+def known_hetzner(deps: Deps, region: str) -> Hetzner | None:
+    """Hetzner for ``region`` from a token already at hand, else None.
+
+    ``HCLOUD_TOKEN`` in the environment comes first, then the one saved in ``secrets.env``.
+    """
+    token = deps.hcloud_env_token() or localconf.load(deps.conf_path).get("HCLOUD_TOKEN")
+    return deps.make_hetzner(region, token) if token else None
+
+
+def hetzner_elsewhere(deps: Deps, region: str, name: str, alias: str) -> str | None:
+    """Why a server ``name`` the token in use cannot see is not gone, or None.
+
+    ``HCLOUD_TOKEN`` may belong to another project than the saved token: when the saved one sees
+    cnsr's server ``name``, it is there. A check that fails tells nothing.
+    """
+    env = deps.hcloud_env_token()
+    saved = localconf.load(deps.conf_path).get("HCLOUD_TOKEN")
+    if not env or not saved or saved == env:
+        return None
+    try:
+        there = deps.make_hetzner(region, saved).instance_tagged(name, alias)
+    except CnsrError:
+        return None
+    if not there:
+        return None
+    return (
+        f"环境变量 HCLOUD_TOKEN 所在的 Hetzner 项目里没有服务器 {name}，本机保存的 token 所在的项目里有。"
+        "为免当成已删除，已停止；请 unset HCLOUD_TOKEN 后重新运行。"
+    )
 
 
 def _detect_agents(env: Mapping[str, str], home: Path, platform: str) -> list[str | None]:
@@ -191,8 +243,10 @@ class DeployContext:
     features: list[str] = field(default_factory=lambda: list(features.ALL))  # what this run deploys
     in_use: bool = False  # a finished run left something on the server before this one
     lightsail: Lightsail | None = None
+    hetzner: Hetzner | None = None
+    offer: Offer | None = None  # the type a new cloud server is bought as, chosen in prepare
     deployed: bool = False  # Xray was deployed by a finished run before this one, so it is in use
-    new_instance: bool = False  # step_ip created the Lightsail instance in this run (rerun included)
+    new_instance: bool = False  # step_ip created the Lightsail instance or Hetzner server in this run (rerun included)
     taken_over: bool = False  # the takeover gate in step_connect passed in this run
     facts: Facts | None = None  # what preflight.sh printed in step_connect
     hits: list[Hit] | None = None  # scan results for step_sni; None when step_scan skipped the scan
@@ -201,6 +255,7 @@ class DeployContext:
     rotation_stopped: bool = False  # stop_rotation stopped the service in this run
     ip_swaps: int = 0  # static IPs this run released as blocked (reach.swap_ip)
     saved: str | None = field(default=None, repr=False)  # the node record as KV holds it
+    replaced: Node | None = None  # the record of the node whose static IP is taken over, as it was
 
     @property
     def pub_path(self) -> Path:
@@ -238,11 +293,11 @@ class DeployContext:
         """Store the node in the control plane's KV when it changed since the last save.
 
         A vendor server is recorded only once the takeover gate has passed: before that cnsr
-        has created nothing there. An AWS node is recorded from the start, since its instance
+        has created nothing there. A cloud node is recorded from the start, since its server
         and static IP cost money and ``rm`` must be able to find them: it is stored before the
-        instance is created.
+        server is created.
         """
-        if self.req.source == "vps" and not self.taken_over:
+        if not is_cloud(self.req.source) and not self.taken_over:
             return
         text = self.node.to_json()
         if text != self.saved:

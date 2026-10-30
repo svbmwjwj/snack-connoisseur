@@ -19,7 +19,7 @@ def test_unknown_region_is_refused_before_any_client_exists(monkeypatch):
     monkeypatch.setattr(lightsail.boto3, "client", lambda *a, **k: pytest.fail("client created"))
     with pytest.raises(CnsrError, match="不支持的区域 eu") as caught:
         Lightsail("eu")
-    assert "jp" in str(caught.value)
+    assert "jp-tokyo" in str(caught.value)
 
 
 SDK_FAILURES = [
@@ -43,7 +43,7 @@ def test_a_broken_profile_or_config_while_making_the_client_is_a_chinese_error(m
 
     monkeypatch.setattr(lightsail.boto3, "client", fail)
     with pytest.raises(LightsailError, match=fragment) as caught:
-        Lightsail("jp")
+        Lightsail("jp-tokyo")
     text = str(caught.value)
     assert "创建 AWS 客户端" in text and REGION in text
     assert not [part for part in ENGLISH_SDK_TEXT if part in text]
@@ -52,11 +52,11 @@ def test_a_broken_profile_or_config_while_making_the_client_is_a_chinese_error(m
 def test_a_missing_aws_profile_in_the_environment_is_a_chinese_error(monkeypatch):
     monkeypatch.setenv("AWS_PROFILE", "does-not-exist")
     with pytest.raises(CnsrError, match="AWS_PROFILE") as caught:
-        Lightsail("jp")
+        Lightsail("jp-tokyo")
     assert "could not be found" not in str(caught.value)
 
 
-@pytest.mark.parametrize("code,region", [("jp", "ap-northeast-1"), ("sg", "ap-southeast-1"), ("us", "us-west-2")])
+@pytest.mark.parametrize("code,region", [("jp-tokyo", "ap-northeast-1"), ("sg", "ap-southeast-1"), ("us-oregon", "us-west-2")])
 def test_without_a_client_a_boto3_lightsail_client_is_made_for_the_region(monkeypatch, code, region):
     made = []
     monkeypatch.setattr(lightsail.boto3, "client", lambda *a, **k: made.append((a, k)) or object())

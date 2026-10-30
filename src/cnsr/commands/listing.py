@@ -1,6 +1,7 @@
 """``cnsr list``: the servers in the control plane and how devices subscribe to their nodes.
 
-Read only: nothing is created in Cloudflare, and no server is contacted.
+Read only: nothing is created in Cloudflare, and no server is contacted. The one call out is a
+read of each Hetzner server's traffic, with a token already at hand.
 """
 
 from __future__ import annotations
@@ -13,15 +14,17 @@ from rich.text import Text
 from cnsr import features, localconf
 from cnsr.cloudflare.control import find_control_plane
 from cnsr.commands.token_hint import saved_token_hint
-from cnsr.deploy.context import Deps, default_deps
+from cnsr.deploy.context import Deps, default_deps, known_hetzner
 from cnsr.errors import CnsrError
+from cnsr.hetzner.cloud import Hetzner
+from cnsr.sizes import terabytes
 from cnsr.qx import snippet_url, v2rayn_url
 from cnsr.state import Inventory, Node
 
-SOURCES = {"aws": "AWS", "vps": "自有服务器"}
-HEADER = ("别名", "功能", "来源", "域名", "IPv4", "SNI", "")
+SOURCES = {"aws": "AWS", "hetzner": "Hetzner", "vps": "自有服务器"}
+HEADER = ("别名", "功能", "来源", "域名", "IPv4", "SNI", "流量", "")
 MARKS = {features.XRAY: ("● ", "green"), features.HARDEN: ("○ ", "yellow")}  # by the last feature installed
-COLUMN_STYLES = ("bold", "", "", "dim", "", "cyan", "red")  # alias, domain, SNI and the missing-subscription note
+COLUMN_STYLES = ("bold", "", "", "dim", "", "cyan", "", "red")  # alias, domain, SNI and the missing-subscription note
 LABEL = "v2rayN 订阅  "  # the widest subscription label and its gap
 
 
@@ -53,7 +56,8 @@ def _list(deps: Deps) -> int:
         ui.info("控制端里还没有服务器。")
         return 0
     ui.styled(Text.assemble(("服务器", "bold"), (f"  {len(nodes)} 台", "dim")))
-    for line in _table([HEADER, *map(_row, nodes)]):
+    traffic = _Traffic(deps)
+    for line in _table([HEADER, *(_row(node, traffic(node)) for node in nodes)]):
         ui.styled(Text("  ", no_wrap=True) + line)
     if not any(features.XRAY in features.installed(node) for node in nodes):
         return 0
@@ -69,16 +73,47 @@ def _subscription(label: str, url: str) -> Text:
     return Text.assemble((label + " " * (cell_len(LABEL) - cell_len(label)), "bold"), (url, "cyan"), no_wrap=True)
 
 
-def _row(node: Node) -> tuple[str, ...]:
+class _Traffic:
+    """A Hetzner server's outgoing traffic this billing period against its included traffic,
+    as "<used> / <included> TB"; "-" for other servers, without a token, or when the call fails.
+
+    One Hetzner client per region; nothing is asked, and a failure goes to the log only.
+    """
+
+    def __init__(self, deps: Deps) -> None:
+        self._deps = deps
+        self._clients: dict[str, Hetzner | None] = {}
+
+    def __call__(self, node: Node) -> str:
+        if node.source != "hetzner" or node.region is None or node.instance_name is None:
+            return "-"
+        try:
+            if node.region not in self._clients:
+                self._clients[node.region] = known_hetzner(self._deps, node.region)
+            hetzner = self._clients[node.region]
+            found = hetzner.traffic(node.instance_name) if hetzner else None
+        except CnsrError as exc:
+            self._clients.setdefault(node.region, None)
+            self._deps.ui.detail(f"没能读取 {node.alias} 在 Hetzner 上的流量：{exc}")
+            return "-"
+        if found is None:
+            return "-"
+        used, included = found
+        return f"{terabytes(used)} / {terabytes(included)} TB"
+
+
+def _row(node: Node, traffic: str) -> tuple[str, ...]:
     source = SOURCES.get(node.source, node.source)
     if node.region:
         source += f" {node.region}"
+    if node.size:
+        source += f" {node.size}"
     installed = features.installed(node)
     mark = MARKS[installed[-1]][0] if installed else "✕ "
     what = mark + (features.summary(installed) if installed else "部署没完成或正在删除")
     sni = node.xray.sni if node.xray and features.XRAY in installed else "-"
     missing = "不在订阅里" if features.XRAY in installed and node.line is None else ""
-    return (node.alias, what, source, node.domain or "-", node.ipv4, sni, missing)
+    return (node.alias, what, source, node.domain or "-", node.ipv4, sni, traffic, missing)
 
 
 def _table(rows: list[tuple[str, ...]]) -> list[Text]:

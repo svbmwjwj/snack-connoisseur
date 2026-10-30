@@ -175,7 +175,7 @@ def test_a_new_aws_node_does_not_take_an_existing_alias(fake_deps):
     ssh_config = fake_deps.deps.ssh_config
     ssh_config.parent.mkdir(parents=True)
     ssh_config.write_text(CUT_ALIAS)
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert "Host jp-1" in fake_deps.terminal.text and "203.0.113.9" in fake_deps.terminal.text
     assert fake_deps.lightsail.calls == [] and fake_deps.node() is None
     assert ssh_config.read_text() == CUT_ALIAS
@@ -185,7 +185,7 @@ def test_an_alias_without_a_hostname_is_no_obstacle(fake_deps):
     ssh_config = fake_deps.deps.ssh_config
     ssh_config.parent.mkdir(parents=True)
     ssh_config.write_text("Host jp-1\n    ForwardAgent yes\n")
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert "ForwardAgent yes" in ssh_config.read_text()
 
 
@@ -204,7 +204,7 @@ def test_an_alias_of_the_requested_server_is_used(fake_deps):
 def test_a_free_static_ip_cnsr_did_not_allocate_is_used_only_after_you_agree(fake_deps):
     fake_deps.lightsail.ips["jp-1-ip"] = None
     fake_deps.terminal.inputs = ["1"]
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert "静态 IP jp-1-ip" in fake_deps.terminal.seen[0] and len(fake_deps.terminal.prompts) == 1
     assert fake_deps.lightsail.ips == {"jp-1-ip": "jp-1"} and fake_deps.node().static_ip_name == "jp-1-ip"
 
@@ -212,7 +212,7 @@ def test_a_free_static_ip_cnsr_did_not_allocate_is_used_only_after_you_agree(fak
 def test_declining_the_free_static_ip_stops_before_any_instance_is_created(fake_deps):
     fake_deps.lightsail.ips["jp-1-ip"] = None
     fake_deps.terminal.inputs = ["2"]
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert "保持原样" in fake_deps.terminal.text
     assert fake_deps.lightsail.instances == {} and fake_deps.lightsail.ips == {"jp-1-ip": None}
 
@@ -220,13 +220,13 @@ def test_declining_the_free_static_ip_stops_before_any_instance_is_created(fake_
 def test_without_a_terminal_a_free_static_ip_is_refused(fake_deps):
     fake_deps.lightsail.ips["jp-1-ip"] = None
     fake_deps.deps.ui = fake_deps.terminal.ui(interactive=False)
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert "没有确认" in fake_deps.terminal.text
     assert fake_deps.lightsail.instances == {} and fake_deps.lightsail.ips == {"jp-1-ip": None}
 
 
 def test_the_recorded_static_ip_is_reused_without_asking(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     fake_deps.lightsail.ips["jp-1-ip"] = None  # detached, for example while the instance was recreated
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert fake_deps.terminal.prompts == [] and fake_deps.lightsail.ips == {"jp-1-ip": "jp-1"}

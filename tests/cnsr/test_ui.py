@@ -363,6 +363,11 @@ def test_choose_many_asks_again_until_the_check_passes():
     assert "要先选第一项" in out.getvalue() and "1 到 2 之间的编号" in out.getvalue()
 
 
+def test_choose_many_ticks_what_a_typed_option_requires():
+    ui, _ = make(["2"])
+    assert ui.choose_many("功能", FEATURES, {0, 1}, set(), needs_first, requires={1: {0}}) == [0, 1]
+
+
 def test_choose_many_keeps_locked_options_and_marks_them():
     ui, out = make(["1"])
     assert ui.choose_many("功能", FEATURES, {0}, {1}, needs_first) == [0, 1]
@@ -372,14 +377,14 @@ def test_choose_many_keeps_locked_options_and_marks_them():
 def test_choose_many_hands_everything_to_the_menu_when_there_is_one():
     seen = []
 
-    def menu(prompt, options, checked, locked, validate):
-        seen.append((prompt, options, checked, locked, validate([1])))
+    def menu(prompt, options, checked, locked, validate, requires):
+        seen.append((prompt, options, checked, locked, validate([1]), requires))
         return [0, 1]
 
     ui = Ui(input_fn=lambda p: pytest.fail("no typed answer with a menu"), out=io.StringIO(), interactive=True,
             select_many_fn=menu)  # fmt: skip
-    assert ui.choose_many("功能", FEATURES, {0, 1}, {0}, needs_first) == [0, 1]
-    assert seen == [("功能", FEATURES, {0, 1}, {0}, "要先选第一项")]
+    assert ui.choose_many("功能", FEATURES, {0, 1}, {0}, needs_first, requires={1: {0}}) == [0, 1]
+    assert seen == [("功能", FEATURES, {0, 1}, {0}, "要先选第一项", {1: {0}})]
 
 
 def test_choose_many_without_a_terminal_is_an_error():
@@ -396,3 +401,91 @@ def test_eof_in_the_checkbox_menu_becomes_cnsr_error():
     ui = Ui(out=io.StringIO(), interactive=True, select_many_fn=closed)
     with pytest.raises(CnsrError, match="缺少参数：功能"):
         ui.choose_many("功能", FEATURES, {0, 1}, set(), needs_first)
+
+
+def test_columns_line_up_by_display_width():
+    from cnsr.ui import aligned, width
+
+    rows = aligned(["a\t内存\tz", "aaa\tb\tz", "plain line"])
+    assert rows == [["a  ", "内存", "z"], ["aaa", "b   ", "z"], ["plain line"]]
+    assert width("内存 a") == 6
+
+
+def test_numbered_options_with_columns_line_up():
+    ui, out = make(["1"])
+    assert ui.choose("规格", ["2c1g\tmicro\t7 美元", "16c64g\tx\t9 美元"]) == 0
+    assert "1. 2c1g    micro  7 美元" in out.getvalue() and "2. 16c64g  x      9 美元" in out.getvalue()
+
+
+# --- going back a question
+
+
+def two_menus(ui):
+    got = {}
+
+    def first():
+        got["a"] = ui.choose("A", ["x", "y"])
+
+    def second():
+        got["b"] = ui.choose("B", ["p", "q"])
+
+    return got, [first, second]
+
+
+def test_back_goes_to_the_previous_question_whose_answer_is_the_default():
+    ui, out = make(["2", "0", "", "1"])  # A: y; B: back; A: Enter keeps y; B: p
+    got, steps = two_menus(ui)
+    ui.ask_in_order(steps)
+    assert got == {"a": 1, "b": 0}
+    assert "返回上一步" not in out.getvalue()
+
+
+def test_the_first_question_has_no_back():
+    ui, out = make(["1", "1"])
+    got, steps = two_menus(ui)
+    ui.ask_in_order(steps)
+    first_menu = out.getvalue().split("B\n")[0]
+    assert "返回" not in first_menu
+
+
+def test_a_step_that_asks_nothing_is_passed_over_going_back():
+    ui, _ = make(["1", "0", "2", "2"])
+    got, (first, second) = two_menus(ui)
+    ui.ask_in_order([first, lambda: None, second])
+    assert got == {"a": 1, "b": 1}
+
+
+def test_back_in_the_checkbox_goes_to_the_previous_question():
+    ui, out = make(["1", "0", "2", ""])  # A: x; ticks: back; A: y; ticks: Enter
+    got = {}
+
+    def first():
+        got["a"] = ui.choose("A", ["x", "y"])
+
+    def ticks():
+        got["t"] = ui.choose_many("功能", FEATURES, {0, 1}, set(), needs_first)
+
+    ui.ask_in_order([first, ticks])
+    assert got == {"a": 1, "t": [0, 1]}
+
+
+def test_no_back_outside_ask_in_order():
+    seen = []
+    it = iter(["0", "1"])
+    ui = Ui(input_fn=lambda p: seen.append(p) or next(it), out=io.StringIO(), interactive=True)
+    assert ui.choose("A", ["x", "y"]) == 0  # 0 is no answer here: asked again
+    assert "0 返回" not in seen[0]
+
+
+def test_a_default_that_cannot_be_picked_moves_to_the_next_option():
+    ui, _ = make([""])
+    assert ui.choose("A", ["x", "y", "z"], default=0, disabled={0: "没货"}) == 1
+
+
+def test_ticks_of_rows_with_columns_are_answered_by_their_first_column(caplog):
+    import logging
+
+    ui, _ = make(["1,2"])
+    with caplog.at_level(logging.INFO, logger="cnsr.ui"):
+        ui.choose_many("删哪些", ["a-1\tAWS sg\t1.2.3.4", "b-2\t自有服务器\t5.6.7.8"], set(), set(), lambda t: None)
+    assert "答：a-1、b-2" in caplog.text

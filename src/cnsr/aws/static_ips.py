@@ -1,4 +1,4 @@
-"""Lightsail static IPs: allocate and attach, find by address, detach and release.
+"""Lightsail static IPs: allocate and attach, list, find by address, detach and release.
 
 ``StaticIps`` is part of ``cnsr.aws.lightsail.Lightsail``, whose ``_call``, ``_call_if_exists``,
 ``_pages``, ``_removal_error``, ``_clock`` and ``_sleep`` it uses.
@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from cnsr.aws.errors import LightsailError, not_attached
@@ -15,6 +16,15 @@ from cnsr.waiting import Deadline
 # Lightsail can show a static IP as attached for a moment after it was detached.
 DETACH_POLL_SECONDS = 2
 DETACH_TIMEOUT_SECONDS = 60
+
+
+@dataclass(frozen=True)
+class StaticIp:
+    """One static IP of the region; ``attached_to`` is None when it is free, "" when AWS names no instance."""
+
+    name: str
+    address: str
+    attached_to: str | None
 
 
 class StaticIps:
@@ -36,6 +46,14 @@ class StaticIps:
         self._call("attach_static_ip", staticIpName=ip_name, instanceName=instance)
         info = self._call("get_static_ip", staticIpName=ip_name).get("staticIp", {})
         return _address(info, ip_name)
+
+    def static_ips(self) -> list[StaticIp]:
+        """Every static IP of the region, in the order Lightsail lists them."""
+        ips = []
+        for info in self._pages("get_static_ips", "staticIps"):
+            attached_to = (info.get("attachedTo") or "") if info.get("isAttached") else None
+            ips.append(StaticIp(info["name"], info.get("ipAddress", ""), attached_to))
+        return ips
 
     def find_static_ip(self, address: str) -> tuple[str, str | None] | None:
         """The static IP with this address: its name and the instance it is attached to (None

@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
+from cnsr.aws.static_ips import StaticIp
 from cnsr.errors import CnsrError
+from cnsr.sizes import Offer, label, pick
 
 AWS_IP = "198.51.100.20"
 AWS_IPV6 = "2001:db8::20"
+GB = 1024**3
+
+
+def bundle(name: str, cores: float, memory: float, monthly: str, disk: float = 20) -> Offer:
+    return Offer(label(cores, memory), name, cores, memory, disk, 1024 * GB, None, Decimal(monthly), Decimal(0), "USD")
+
+
+def default_bundles() -> list[Offer]:
+    return [
+        bundle("nano_3_0", 2, 0.5, "5"), bundle("micro_3_0", 2, 1, "7", 40), bundle("small_3_0", 2, 2, "12", 60),
+        bundle("medium_3_0", 2, 4, "24", 80), bundle("large_3_0", 2, 8, "44", 160),
+    ]
 
 
 class FakeLightsail:
@@ -17,7 +33,8 @@ class FakeLightsail:
     ``release_errors`` and ``delete_instance_errors`` are what the removal calls return (the
     resource is then left in place). ``addresses`` gives static IPs their own address
     (``AWS_IP`` otherwise); only those are found by address. With ``attach_error`` set,
-    ``ensure_static_ip`` allocates the IP and then fails to attach it, as AWS may.
+    ``ensure_static_ip`` allocates the IP and then fails to attach it, as AWS may. ``bundles``
+    is what ``offers`` lists, and ``created`` maps each instance created to its bundle.
     """
 
     def __init__(self) -> None:
@@ -30,6 +47,8 @@ class FakeLightsail:
         self.release_errors: list[str] = []
         self.delete_instance_errors: list[str] = []
         self.attach_error: CnsrError | None = None
+        self.bundles: list[Offer] = default_bundles()
+        self.created: dict[str, str] = {}
 
     def names(self) -> list[str]:
         return [call[0] for call in self.calls]
@@ -38,11 +57,24 @@ class FakeLightsail:
         self.calls.append(("ensure_key_pair", name, pub_line))
         return name
 
-    def ensure_instance(self, name: str, key_pair: str) -> bool:
+    def offers(self) -> list[Offer]:
+        self.calls.append(("offers",))
+        return list(self.bundles)
+
+    def pick(self, size: str) -> Offer:
+        self.calls.append(("pick", size))
+        found = pick(self.bundles, size)
+        if found is None:
+            raise CnsrError(f"没有 {size} 规格的 Lightsail 套餐。")
+        return found
+
+    def ensure_instance(self, name: str, key_pair: str, size: str) -> bool:
         self.calls.append(("ensure_instance", name, key_pair))
         if self.instances.get(name) is False:
             raise CnsrError(f"已有同名实例 {name}，但它不是 cnsr 创建的。")
         created = name not in self.instances
+        if created:
+            self.created[name] = pick(self.bundles, size).name
         self.instances[name] = True
         return created
 
@@ -61,6 +93,10 @@ class FakeLightsail:
             raise self.attach_error
         self.ips[ip_name] = instance
         return self.addresses.get(ip_name, AWS_IP)
+
+    def static_ips(self) -> list[StaticIp]:
+        self.calls.append(("static_ips",))
+        return [StaticIp(name, self.addresses.get(name, AWS_IP), attached) for name, attached in self.ips.items()]
 
     def find_static_ip(self, address: str) -> tuple[str, str | None] | None:
         self.calls.append(("find_static_ip", address))

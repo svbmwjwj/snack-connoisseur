@@ -7,7 +7,7 @@ from rich.console import Console
 
 from cnsr.progress import LiveStages, PlainStages, elapsed, terminal_display
 
-HEADING = "cnsr up jp-1 · AWS 东京"
+HEADING = "cnsr up jp-1 · AWS 日本东京"
 TITLES = ["甲", "乙", "丙"]
 ALT_ON, ALT_OFF = "\x1b[?1049h", "\x1b[?1049l"
 CONTROL = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")

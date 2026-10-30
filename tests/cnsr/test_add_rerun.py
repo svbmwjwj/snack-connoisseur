@@ -16,7 +16,7 @@ UNKNOWN = Egress(None, "203.0.113.5")
 def deploy_with_few_backups(fake_deps) -> str:
     """Deploy jp-1 on AWS with only three backups, so that a rerun wants to scan again."""
     fake_deps.server.latency = {f"site{i}.example.com": 50 - i for i in range(4)}
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     return fake_deps.server.files[BACKUPS_PATH]
 
 
@@ -29,7 +29,7 @@ def test_a_refill_behind_a_proxy_is_skipped_with_a_warning(fake_deps, seen):
     fake_deps.egress_result = seen
     prompts = len(fake_deps.terminal.prompts)
 
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
 
     text = fake_deps.terminal.text
     assert "警告：备选未补充" in text and "关闭代理后重跑" in text
@@ -41,7 +41,7 @@ def test_a_refill_behind_a_proxy_is_skipped_with_a_warning(fake_deps, seen):
 def test_a_first_deployment_behind_a_proxy_still_stops(fake_deps):
     fake_deps.egress_result = PROXIED
     fake_deps.terminal.inputs = ["2"]
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert "关闭代理" in fake_deps.terminal.text and "备选未补充" not in fake_deps.terminal.text
 
 
@@ -60,13 +60,13 @@ def sshd_starts_after_a_while(fake_deps, error: SshError) -> None:
 
 
 def test_an_instance_recreated_on_a_rerun_gets_the_boot_wait_and_a_fresh_host_key(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     domain = fake_deps.node().domain
     fake_deps.lightsail.instances.clear()  # deleted by hand; the record still names it
     sshd_starts_after_a_while(fake_deps, SshError("port"))
     forgotten = len(fake_deps.calls["forget"])
 
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
 
     assert fake_deps.lightsail.instances == {"jp-1": True}
     assert "等待 SSH 就绪" in fake_deps.terminal.text and 10 in fake_deps.sleeps
@@ -74,13 +74,13 @@ def test_an_instance_recreated_on_a_rerun_gets_the_boot_wait_and_a_fresh_host_ke
 
 
 def test_an_existing_instance_on_a_rerun_gets_no_boot_wait(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     fake_deps.server.fail_on["true"] = SshError("port")
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert "等待 SSH 就绪" not in fake_deps.terminal.text
 
 
 def test_connection_closed_while_a_new_instance_boots_is_retried(fake_deps):
     sshd_starts_after_a_while(fake_deps, SshError("other", "SSH 连接失败（退出码 255）：\nkex_exchange_identification: Connection closed by remote host"))
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert fake_deps.sleeps[0] == 10

@@ -17,6 +17,7 @@ from cnsr.deploy.steps_host import step_connect, step_harden, step_ip
 from cnsr.deploy.steps_node import step_register, step_xray
 from cnsr.deploy.steps_rotate import resume_rotation, step_rotate
 from cnsr.deploy.steps_sni import step_scan, step_sni
+from cnsr.hetzner.cloud import REGION_NAMES as HETZNER_REGION_NAMES
 from cnsr.ssh.remote import SshError
 from cnsr.waiting import Deadline
 
@@ -49,6 +50,8 @@ def heading(req: AddRequest) -> str:
     """The title line of the stage list: the command, the alias and where the node runs."""
     if req.source == "aws":
         return f"cnsr up {req.alias} · AWS {REGION_NAMES.get(req.region, req.region)}"
+    if req.source == "hetzner":
+        return f"cnsr up {req.alias} · Hetzner {HETZNER_REGION_NAMES.get(req.region, req.region)}"
     return f"cnsr up {req.alias} · 已有服务器 {req.ip}"
 
 

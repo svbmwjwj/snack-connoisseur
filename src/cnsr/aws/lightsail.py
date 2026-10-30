@@ -20,17 +20,37 @@ from typing import Any
 import boto3
 from botocore import exceptions as boto_exc
 
+from cnsr.aws import bundles
 from cnsr.aws.errors import NOT_FOUND, LightsailError, not_attached, reason_for, sdk_reason
 from cnsr.aws.fingerprint import clean_pub_line, lightsail_fingerprint
 from cnsr.aws.static_ips import StaticIps
 from cnsr.errors import CnsrError
+from cnsr.sizes import Offer, parse, pick
 from cnsr.waiting import Deadline
 
 logger = logging.getLogger(__name__)
 
-REGIONS = {"jp": "ap-northeast-1", "sg": "ap-southeast-1", "us": "us-west-2"}
-REGION_NAMES = {"jp": "东京", "sg": "新加坡", "us": "俄勒冈"}
-BUNDLE = "nano_3_0"
+# Every region Lightsail offers, by cnsr's code (country, then state or city when it is known).
+REGIONS = {
+    "jp-tokyo": "ap-northeast-1", "sg": "ap-southeast-1", "us-oregon": "us-west-2",
+    "kr-seoul": "ap-northeast-2", "hk": "ap-east-1", "id-jakarta": "ap-southeast-3", "my": "ap-southeast-5",
+    "in-mumbai": "ap-south-1", "au-sydney": "ap-southeast-2",
+    "us-virginia": "us-east-1", "us-ohio": "us-east-2", "ca-montreal": "ca-central-1", "br-sao-paulo": "sa-east-1",
+    "de-frankfurt": "eu-central-1", "ie-dublin": "eu-west-1", "uk-london": "eu-west-2", "fr-paris": "eu-west-3",
+    "se-stockholm": "eu-north-1", "es": "eu-south-2",
+}  # fmt: skip
+REGION_NAMES = {
+    "jp-tokyo": "日本东京", "sg": "新加坡", "us-oregon": "美国俄勒冈州",
+    "kr-seoul": "韩国首尔", "hk": "中国香港", "id-jakarta": "印度尼西亚雅加达", "my": "马来西亚",
+    "in-mumbai": "印度孟买", "au-sydney": "澳大利亚悉尼",
+    "us-virginia": "美国弗吉尼亚州", "us-ohio": "美国俄亥俄州", "ca-montreal": "加拿大蒙特利尔", "br-sao-paulo": "巴西圣保罗",
+    "de-frankfurt": "德国法兰克福", "ie-dublin": "爱尔兰都柏林", "uk-london": "英国伦敦", "fr-paris": "法国巴黎",
+    "se-stockholm": "瑞典斯德哥尔摩", "es": "西班牙",
+}  # fmt: skip
+# The regions the menu shows first; the others are under "more regions".
+FEATURED_REGIONS = ("jp-tokyo", "sg", "us-oregon")
+# Regions AWS disables by default: an account must enable them before Lightsail works there.
+OPT_IN = {"hk", "id-jakarta", "my", "es"}
 BLUEPRINTS = ("debian_13", "debian_12")
 LOGIN_USER = "admin"
 
@@ -97,6 +117,22 @@ class Lightsail(StaticIps):
         self._call("import_key_pair", keyPairName=name, publicKeyBase64=clean_pub_line(pub_line))
         return name
 
+    # --- sizes
+
+    def offers(self) -> list[Offer]:
+        """Every bundle a node can be in this region."""
+        return bundles.offers(self._pages("get_bundles", "bundles", includeInactive=False))
+
+    def pick(self, size: str) -> Offer:
+        """The cheapest bundle of size ``size`` in this region."""
+        offer = pick(self.offers(), size)
+        if offer is None:
+            cores, memory = parse(size)
+            raise CnsrError(
+                f"{self.region} 区域没有 {size} 规格的 Lightsail 套餐（至少 {cores} 核 {memory:g} GB），请换一个规格。"
+            )
+        return offer
+
     # --- instance
 
     def pick_blueprint(self) -> str:
@@ -111,8 +147,9 @@ class Lightsail(StaticIps):
                 return blueprint_id
         raise CnsrError(f"{self.region} 区域没有可用的 Debian 13 或 Debian 12 系统镜像。")
 
-    def ensure_instance(self, name: str, key_pair: str) -> bool:
-        """Create the dual-stack instance ``name``, or accept the one cnsr created earlier.
+    def ensure_instance(self, name: str, key_pair: str, size: str) -> bool:
+        """Create the dual-stack instance ``name`` as the cheapest bundle of ``size``, or accept
+        the one cnsr created earlier.
 
         Returns True when the instance was created by this call.
         """
@@ -126,12 +163,13 @@ class Lightsail(StaticIps):
             )
         zone = self._availability_zone()
         blueprint = self.pick_blueprint()
+        bundle = self.pick(size).name
         self._call(
             "create_instances",
             instanceNames=[name],
             availabilityZone=zone,
             blueprintId=blueprint,
-            bundleId=BUNDLE,
+            bundleId=bundle,
             keyPairName=key_pair,
             ipAddressType="dualstack",
             tags=[{"key": TAG_KEY, "value": name}],

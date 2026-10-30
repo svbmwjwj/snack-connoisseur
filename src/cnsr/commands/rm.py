@@ -1,6 +1,7 @@
 """``cnsr rm``: delete a node's cloud resources and records, in an order that a rerun can finish.
 
-The steps run in a fixed order: the AWS instance and static IP, the DNS records, the SSH
+The steps run in a fixed order: the AWS instance and static IP (or the Hetzner server, Primary
+IP and firewall), the DNS records, the SSH
 alias, and last the node's entry in the control plane (which also holds its client config
 line and its token), together with its SNI rotation state. A step that fails does not stop the ones after it, but the entry stays,
 so that running ``rm`` again retries whatever is left. The entry is updated with what was
@@ -14,10 +15,10 @@ from __future__ import annotations
 from argparse import Namespace
 from collections.abc import Callable
 
-from cnsr import localconf
 from cnsr.aws.lightsail import Lightsail
 from cnsr.cloudflare.api import CloudflareClient
-from cnsr.cloudflare.control import find_control_plane
+from cnsr.commands import rm_pick
+from cnsr.commands.rm_hetzner import remove_hetzner, show_plan as show_hetzner_plan
 from cnsr.commands.token_hint import saved_token_hint
 from cnsr.deploy.context import Deps, default_deps, known_lightsail
 from cnsr.deploy.dns_records import delete_node_records
@@ -27,33 +28,50 @@ from cnsr.naming import validate_alias
 from cnsr.ssh.config import HostBlock, read_block, remove_block
 from cnsr.state import Inventory, Node
 
-RM_TITLES = {"aws": "删除 AWS 实例和静态 IP", "dns": "删除 DNS 记录", "alias": "删除 SSH 别名", "record": "删除控制端登记"}
+RM_TITLES = {
+    "aws": "删除 AWS 实例和静态 IP",
+    "hetzner": "删除 Hetzner 服务器、Primary IP 和防火墙",
+    "dns": "删除 DNS 记录",
+    "alias": "删除 SSH 别名",
+    "record": "删除控制端登记",
+}
 # A static IP you had before the node (cnsr up --static-ip) is detached and kept, not deleted.
 KEPT_IP_TITLE = "删除 AWS 实例（静态 IP 保留）"
+CONFIRM_OPTIONS = ["删除", "取消"]
 
 
 def run(ns: Namespace, deps: Deps | None = None) -> int:
-    """Delete the server ``ns.alias``; 0 when everything is gone, 1 after an error or a leftover.
+    """Delete the server ``ns.alias``, or the servers ticked; 0 when everything is gone, 1 after
+    an error or a leftover.
 
-    Without an alias (``cnsr`` started from its menu) the alias is asked. The error is printed
-    here. Ctrl-C goes up to ``cnsr.cli``.
+    Without an alias (``cnsr`` started from its menu) every server is listed to tick. What will
+    be deleted is shown, then one question confirms it. The servers are deleted one after the
+    other. The error is printed here. Ctrl-C goes up to ``cnsr.cli``.
     """
     deps = deps or default_deps()
+    ui = deps.ui
     try:
         with saved_token_hint(deps.conf_path):
-            alias = ns.alias or deps.ui.ask("要删除的服务器别名", validate=validate_alias)
-            return _remove(alias, deps)
+            if ns.alias is not None and (error := validate_alias(ns.alias)) is not None:
+                raise CnsrError(error)
+            cf, zone_id, inventory = rm_pick.find_control(ns.alias, deps)
+            nodes = [rm_pick.find_node(ns.alias, inventory)] if ns.alias else rm_pick.choose(ui, inventory)
+            if not nodes:
+                return 0
+            for node in nodes:
+                _show_plan(node, deps)
+            what = f"服务器 {nodes[0].alias}" if len(nodes) == 1 else f"这 {len(nodes)} 台服务器"
+            if ui.choose(f"确认删除{what}？", CONFIRM_OPTIONS, default=1) != 0:
+                ui.info("已取消，没有删除任何东西。")
+                return 0
+            return max(_remove(cf, zone_id, inventory, node, deps) for node in nodes)
     except CnsrError as exc:
-        deps.ui.error(str(exc))
+        ui.error(str(exc))
         return 1
 
 
-def _remove(alias: str, deps: Deps) -> int:
-    ui = deps.ui
-    cf, zone_id, inventory, node = _find_node(alias, deps)
-    _show_plan(node, deps)
-    ui.confirm_text("输入别名确认删除", alias)
-
+def _remove(cf: CloudflareClient, zone_id: str, inventory: Inventory, node: Node, deps: Deps) -> int:
+    ui, alias = deps.ui, node.alias
     keys = rm_stages(node)
     ui.begin(f"cnsr rm {alias}", [stage_title(key, node) for key in keys])
 
@@ -85,7 +103,7 @@ def stage_title(key: str, node: Node) -> str:
 
 def rm_stages(node: Node) -> list[str]:
     """The parts ``remove_node`` goes through for ``node``, as keys of ``RM_TITLES``, in order."""
-    return (["aws"] if node.source == "aws" else []) + ["dns", "alias", "record"]
+    return ([node.source] if node.source in ("aws", "hetzner") else []) + ["dns", "alias", "record"]
 
 
 def remove_node(
@@ -104,7 +122,7 @@ def remove_node(
     that a free static IP is charged by the hour goes to the log only.
 
     Something left keeps the record, updated with what was deleted. ``cnsr up`` uses this
-    too, to clean up after a first AWS deployment that failed. ``on_stage(key, previous_left)``
+    too, to clean up after a first cloud deployment that failed. ``on_stage(key, previous_left)``
     is called before each part of ``rm_stages(node)`` starts, whether or not it has anything
     to do; ``previous_left`` says whether the part before it left something.
     """
@@ -123,6 +141,9 @@ def remove_node(
         if node.source == "aws":
             enter("aws")
             left += _remove_aws(node, deps, ip_goes_back)
+        if node.source == "hetzner":
+            enter("hetzner")
+            left += remove_hetzner(node, deps)
         enter("dns")
         left += _remove_dns(cf, zone_id, node, deps)
         enter("alias")
@@ -141,24 +162,6 @@ def remove_node(
     if left:
         _save_progress(inventory, node, recorded, deps)
     return left
-
-
-def _find_node(alias: str, deps: Deps) -> tuple[CloudflareClient, str, Inventory, Node]:
-    """The node's record and what is needed to delete the rest; creates nothing in Cloudflare."""
-    values = localconf.load(deps.conf_path)
-    token, zone = values.get("CLOUDFLARE_API_TOKEN"), values.get("CLOUDFLARE_ZONE")
-    if not (token and zone):
-        raise CnsrError(f"没有名为 {alias} 的服务器（本机还没有 Cloudflare 设置）。")
-    cf = deps.make_cf(token)
-    found = find_control_plane(cf, zone)
-    if found is None:
-        raise CnsrError(f"没有名为 {alias} 的服务器（这个 Cloudflare 账号里还没有控制端）。")
-    kv, _, zone_id = found
-    inventory = Inventory(kv)
-    node = inventory.get(alias)
-    if node is None:
-        raise CnsrError(f"没有名为 {alias} 的服务器。")
-    return cf, zone_id, inventory, node
 
 
 def _show_plan(node: Node, deps: Deps) -> None:
@@ -182,6 +185,8 @@ def _show_plan(node: Node, deps: Deps) -> None:
             guess, instance = f"{node.alias}{STATIC_IP_SUFFIX}", node.instance_name or node.alias
             ui.info(f"  — 静态 IP {guess}（记录里没有它，只有它绑在实例 {instance} 上才会释放）")
         keep.append("AWS 上的 key pair（同区域的其他实例可能还在用）")
+    elif node.source == "hetzner":
+        keep.append(show_hetzner_plan(node, deps))
     else:
         keep.insert(0, f"服务器 {node.ipv4} 本身不动（上面的 Xray 仍在运行，需要时请自行处理）")
     if node.dns_record_ids:

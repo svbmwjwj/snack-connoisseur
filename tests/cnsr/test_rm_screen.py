@@ -42,7 +42,8 @@ def test_the_display_begins_after_the_confirmation(fake_deps):
     assert remove(fake_deps)[0] == 0
     names = [call[0] for call in display.calls]
     assert names.index("begin") > names.index("resumed")  # the confirmation question came first
-    assert ("begin", "cnsr rm jp-1", list(rm.RM_TITLES.values())) in display.calls
+    aws_stages = [rm.RM_TITLES[key] for key in ("aws", "dns", "alias", "record")]
+    assert ("begin", "cnsr rm jp-1", aws_stages) in display.calls
     assert [call for call in display.calls if call[0] in ("start", "end")] == [
         ("start", 1), ("start", 2), ("start", 3), ("start", 4), ("end", "done")
     ]  # fmt: skip

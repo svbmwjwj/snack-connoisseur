@@ -17,7 +17,7 @@ def full_node(alias="jp-1") -> Node:
         source="aws",
         ipv4="192.0.2.10",
         ipv6="2001:db8::10",
-        region="jp",
+        region="jp-tokyo",
         instance_name="cnsr-jp-1",
         static_ip_name="jp-1-ip",
         domain="jp-1.example.com",
@@ -92,7 +92,7 @@ def test_node_json_round_trip():
         source="aws",
         ipv4="192.0.2.10",
         ipv6="2001:db8::10",
-        region="jp",
+        region="jp-tokyo",
         ssh=SshInfo("admin", 22, "jp-1"),
         xray=XrayInfo("u", "pk", "0123456789abcdef", "www.example.com", "198.51.100.7"),
     )

@@ -6,7 +6,7 @@ import dataclasses
 import sys
 from pathlib import Path
 
-from cnsr.deploy import reach, static_ip
+from cnsr.deploy import hetzner_host, reach, static_ip
 from cnsr.deploy.context import DeployContext
 from cnsr.deploy.dns_records import ensure_node_records
 from cnsr.errors import CnsrError
@@ -31,12 +31,14 @@ SAVE_RETRY_SECONDS = 3
 
 
 def step_ip(ctx: DeployContext) -> None:
-    """Know the node's IPv4: the given one, or a Lightsail instance's (with its IPv6).
+    """Know the node's IPv4: the given one, or a Lightsail instance's or Hetzner server's (with its IPv6).
 
     A vendor server's IPv6 comes from preflight in ``step_connect``.
     """
     if ctx.req.source == "vps":
         ctx.node.ipv4 = ctx.req.ip
+    elif ctx.req.source == "hetzner":
+        hetzner_host.ensure_server(ctx)
     else:
         _ensure_instance(ctx)
     ctx.save()
@@ -59,7 +61,7 @@ def _ensure_instance(ctx: DeployContext) -> None:
     node.instance_name = name
     ctx.save()
     # Also an instance the record names that was deleted by hand and is created again now.
-    ctx.new_instance = lightsail.ensure_instance(name, key_pair)
+    ctx.new_instance = lightsail.ensure_instance(name, key_pair, ctx.req.size)
     lightsail.wait_running(name)
     if node.static_ip_reused:
         static_ip.take(ctx, name)
@@ -89,6 +91,8 @@ def _confirm_free_static_ip(ctx: DeployContext, ip_name: str, instance: str) -> 
         return True
     if attached_to is not None:  # ensure_static_ip decides
         return False
+    if ctx.req.take_free_ip:  # picked in cnsr up's menu, which said rm releases it
+        return True
     question = (
         f"Lightsail 里已有一个没有绑定任何实例的静态 IP {ip_name}，不是这次运行申请的，可能是你自己的。"
         f"要把它绑到实例 {instance} 上作为节点地址吗？以后运行 cnsr rm {ctx.node.alias} 会释放它。"
@@ -133,10 +137,13 @@ def step_connect(ctx: DeployContext) -> None:
 
 
 def step_harden(ctx: DeployContext) -> None:
-    """AWS: check the fixed baseline, then the cloud firewall. A vendor server reached as root:
-    move SSH to admin on a random port. One cnsr hardened before: finish what an earlier run
-    left undone, and open the ports of the features chosen now. A vendor server reached as
-    another user: nothing."""
+    """AWS: check the fixed baseline, then the cloud firewall. A vendor or Hetzner server reached
+    as root: move SSH to admin on a random port. One cnsr hardened before: finish what an earlier
+    run left undone, and open the ports of the features chosen now. A vendor server reached as
+    another user: nothing. A Hetzner server gets its cloud firewall first, with the recorded SSH
+    port and the ports of the features chosen now."""
+    if ctx.req.source == "hetzner":
+        hetzner_host.apply_firewall(ctx)
     if ctx.req.source == "aws":
         _aws_baseline(ctx)
     elif ctx.node.ssh.user == "root":
@@ -183,6 +190,12 @@ def _refusal(findings: list[str], key_installed: bool) -> str:
 
 
 def _hardens(ctx: DeployContext) -> bool:
+    return ctx.req.source in ("vps", "hetzner") and ctx.node.ssh.user == "root"
+
+
+def _installs_key(ctx: DeployContext) -> bool:
+    """A vendor server reached as root may need the key installed with its password; a Hetzner
+    server never does, since it gets the key when it is created and has no root password."""
     return ctx.req.source == "vps" and ctx.node.ssh.user == "root"
 
 
@@ -227,7 +240,7 @@ def _login(ctx: DeployContext) -> bool:
             if err.kind == "hostkey" and not forgot:
                 _forget_host_key(ctx, err)
                 forgot = True
-            elif err.kind in ("key", "password") and _hardens(ctx) and not installed:
+            elif err.kind in ("key", "password") and _installs_key(ctx) and not installed:
                 with deps.ui.handover():  # OpenSSH asks for the password on the terminal itself
                     deps.ui.info(  # inside, so it shows below the stage's context line
                         f"服务器还没有装入你的公钥。接下来 ssh 会提示输入 {target.hostname} 的 root 密码，"
@@ -325,18 +338,29 @@ def _harden_vendor(ctx: DeployContext) -> None:
 
     The node takes the new login as soon as the cut is proven, so that a run stopped after
     that (Ctrl-C included) still stores it.
+
+    A Hetzner server's cloud firewall lets the new port in before the server listens on it,
+    and keeps 22 open until hardening has succeeded and the new login is stored.
     """
     node = ctx.node
+    hetzner = ctx.req.source == "hetzner"
 
     def keep(user: str, port: int) -> None:
         node.ssh.user, node.ssh.port = user, port
 
-    keep(*_hardener(ctx).run(ctx.key.line, _listening_ports(ctx.facts), app_ports=ctx.app_ports, on_cut=keep))
+    def open_port(port: int) -> None:
+        hetzner_host.allow_ssh(ctx, 22, port)
+
+    hardener = _hardener(ctx)
+    busy = _listening_ports(ctx.facts)
+    keep(*hardener.run(ctx.key.line, busy, app_ports=ctx.app_ports, on_cut=keep, on_port=open_port if hetzner else None))
     try:
         write_alias(ctx)
     except CnsrError as exc:
         raise CnsrError(f"{exc}\n{_new_login(ctx)}") from exc
     _save_new_login(ctx)
+    if hetzner:
+        hetzner_host.allow_ssh(ctx, node.ssh.port)
 
 
 def _new_login(ctx: DeployContext) -> str:

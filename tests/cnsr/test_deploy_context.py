@@ -63,7 +63,7 @@ def test_default_aws_credentials_from_environment(no_aws_environment, monkeypatc
 
 
 def test_lightsail_with_explicit_keys(no_aws_environment):
-    lightsail = _make_lightsail("jp", ("AKIDEXAMPLE", "secret-example"))
+    lightsail = _make_lightsail("jp-tokyo", ("AKIDEXAMPLE", "secret-example"))
     assert lightsail.region == "ap-northeast-1"
 
 

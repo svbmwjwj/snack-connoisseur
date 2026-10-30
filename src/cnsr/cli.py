@@ -24,13 +24,27 @@ cnsr  部署并加固服务器，可选自建 REALITY 节点（SNI 失效时自�
 命令
   up [别名]             部署服务器：勾选要部署的功能（基础加固、Xray 节点）；
                         不带参数时逐项询问
-      --aws <区域>      在 AWS Lightsail 新开一台（区域：jp、sg、us）
+      --aws <区域>      在 AWS Lightsail 新开一台（区域如 jp-tokyo、sg、us-oregon、
+                        de-frankfurt，共 19 个；不写时菜单里选“更多地区”可看全部）
       --static-ip <IP>  配合 --aws：用你在这个区域已有的静态 IP 作服务器地址；
-                        它绑在别的实例上时先问你再改绑，cnsr rm 时解绑并保留
+                        它绑在别的实例上时先问你再改绑，cnsr rm 时解绑并保留；
+                        不写时，在终端里运行会用菜单列出区域内已有的静态 IP
+      --hetzner <区域>  在 Hetzner Cloud 新开一台（区域：sg、us-oregon、us-virginia、
+                        de-falkenstein、de-nuremberg、fi-helsinki）；API token 先读
+                        环境变量 HCLOUD_TOKEN，再读本机保存的，都没有时询问
+      --size <规格>     配合 --aws：至少几核几 GB 内存，例如 2c0.5g、2c1g，自动选满足它、
+                        最便宜的套餐；配合 --hetzner：机型型号，例如 cx23、cpx22、ccx13；
+                        不写时用菜单选（Hetzner 先选方案再选机型）
       --ip <IP>         接管一台已有服务器
-  rm [别名]             删除服务器；AWS 服务器同时删除实例、释放静态 IP
-  list                  服务器列表；有 Xray 节点时同时列出圈X 配置和 v2rayN 订阅地址
+      --to <功能>       部署到哪一层：base 只加固，xray 加固并部署 Xray 节点；
+                        不写时用菜单勾选
+  rm [别名]             删除服务器；AWS 服务器同时删除实例、释放静态 IP；Hetzner 服务器
+                        同时删除服务器、Primary IP 和防火墙（SSH key 保留）；不写别名时
+                        列出所有服务器勾选，可多选；删除前确认一次（直接回车为取消）
+  list                  服务器列表，Hetzner 服务器带本月流量；有 Xray 节点时同时列出
+                        圈X 配置和 v2rayN 订阅地址
 
+新开服务器时，开始部署前会打印等价命令（不含 --static-ip），换一个别名即可按同样的配置再开一台。
 对已有别名再次运行 up：续跑没完成的步骤、可以补选功能、补充备选 SNI，并更新到当前版本。
 
 选项
@@ -38,12 +52,21 @@ cnsr  部署并加固服务器，可选自建 REALITY 节点（SNI 失效时自�
   --version             显示版本
 """
 
-AWS_REGIONS = ("jp", "sg", "us")
+# ``--aws``: the codes of ``cnsr.aws.lightsail.REGIONS`` (not imported here: it loads boto3).
+AWS_REGIONS = (
+    "jp-tokyo", "sg", "us-oregon", "kr-seoul", "hk", "id-jakarta", "my", "in-mumbai", "au-sydney", "us-virginia",
+    "us-ohio", "ca-montreal", "br-sao-paulo", "de-frankfurt", "ie-dublin", "uk-london", "fr-paris", "se-stockholm", "es",
+)  # fmt: skip
+HETZNER_REGIONS = ("sg", "us-oregon", "us-virginia", "de-falkenstein", "de-nuremberg", "fi-helsinki")
+# ``--to``: the feature to deploy up to, with every feature it builds on.
+TO_FEATURES = ("base", "xray")
 # The top-level menu of ``cnsr`` run without a command, and the command behind each entry.
 MENU_LABELS = ["部署服务器", "删除服务器", "服务器列表"]
 MENU_COMMANDS = ["up", "rm", "list"]
 # argparse: "argument command: invalid choice: 'jp-1' (choose from add, rm)"
 _INVALID_CHOICE = re.compile(r"invalid choice: '([^']*)'")
+# The sources of ``cnsr up``, in the order a clash between two of them names them.
+_SOURCE_OPTIONS = ("--aws", "--hetzner", "--ip")
 
 
 class _HelpAction(argparse.Action):
@@ -60,9 +83,21 @@ class _HelpAction(argparse.Action):
 def _explain(message: str) -> str:
     """Map an argparse diagnostic to a Chinese sentence; fall back to a generic one."""
     if "not allowed with argument" in message:
-        return "--aws 与 --ip 不能同时使用"
+        first, second = sorted(set(re.findall(r"--[a-z-]+", message)), key=_SOURCE_OPTIONS.index)
+        return f"{first} 与 {second} 不能同时使用"
+    if "argument --to:" in message:
+        return f"--to 只能是 {' 或 '.join(TO_FEATURES)}"
+    if "argument --size:" in message:
+        return "--size 要写规格，例如 2c4g"
+    if "argument --hetzner:" in message:
+        return f"--hetzner 的区域只能是 {'、'.join(HETZNER_REGIONS)}"
     if "invalid choice" in message and "--aws" in message:
-        return "--aws 的区域只能是 jp、sg、us"
+        from cnsr.state import LEGACY_REGIONS
+
+        word = _INVALID_CHOICE.search(message)
+        if word and word[1] in LEGACY_REGIONS:
+            return f"--aws 的区域 {word[1]} 已改为 {LEGACY_REGIONS[word[1]]}"
+        return f"--aws 的区域只能是 {'、'.join(AWS_REGIONS)}"
     if word := _INVALID_CHOICE.search(message):
         return f"未知命令“{word[1]}”。命令写在最前面：部署服务器用 cnsr up <别名>，删除服务器用 cnsr rm <别名>"
     if "invalid choice" in message:
@@ -85,7 +120,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(prog="cnsr", add_help=False)
     parser.add_argument("-h", "--help", action=_HelpAction)
     parser.add_argument("--version", action="version", version=f"cnsr {__version__}")
-    parser.set_defaults(alias=None, aws=None, ip=None, static_ip=None)
+    parser.set_defaults(alias=None, aws=None, hetzner=None, ip=None, static_ip=None, size=None, to=None)
     commands = parser.add_subparsers(dest="command")
 
     up = commands.add_parser("up", add_help=False)
@@ -93,8 +128,11 @@ def _build_parser() -> argparse.ArgumentParser:
     up.add_argument("alias", nargs="?")
     source = up.add_mutually_exclusive_group()
     source.add_argument("--aws", choices=AWS_REGIONS)
+    source.add_argument("--hetzner", choices=HETZNER_REGIONS)
     source.add_argument("--ip")
     up.add_argument("--static-ip")
+    up.add_argument("--size")
+    up.add_argument("--to", choices=TO_FEATURES)
 
     rm = commands.add_parser("rm", add_help=False)
     rm.add_argument("-h", "--help", action=_HelpAction)
@@ -188,7 +226,7 @@ def _menu_command() -> str | None:
     """The command picked in the top-level menu; None without a terminal to show it in."""
     if sys.platform == "win32":
         return None
-    from cnsr.menu import terminal_select  # questionary loads only for the menu
+    from cnsr.menu import terminal_select  # prompt_toolkit loads only for the menu
 
     select = terminal_select()
     if select is None:

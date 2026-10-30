@@ -24,9 +24,9 @@ FIREWALL = [
 
 
 def test_regions_and_defaults_are_fixed():
-    assert lightsail.REGIONS == {"jp": "ap-northeast-1", "sg": "ap-southeast-1", "us": "us-west-2"}
-    assert (lightsail.BUNDLE, lightsail.BLUEPRINTS, lightsail.LOGIN_USER) == (
-        "nano_3_0", ("debian_13", "debian_12"), "admin")
+    assert {code: lightsail.REGIONS[code] for code in lightsail.FEATURED_REGIONS} == {
+        "jp-tokyo": "ap-northeast-1", "sg": "ap-southeast-1", "us-oregon": "us-west-2"}
+    assert (lightsail.BLUEPRINTS, lightsail.LOGIN_USER) == (("debian_13", "debian_12"), "admin")
     assert issubclass(KeyConflict, CnsrError) and issubclass(LightsailError, CnsrError)
 
 
@@ -132,18 +132,49 @@ def zones(*states: str, name: str = REGION) -> dict:
         {"zoneName": f"{name}{letters[i]}", "state": s} for i, s in enumerate(states)]}]}
 
 
-def create_instance(aws, regions: dict, zone: str, blueprints=("debian_13",)) -> None:
+def bundle(bundle_id: str, cores: int, memory: float, price: float, **fields) -> dict:
+    return {"bundleId": bundle_id, "cpuCount": cores, "ramSizeInGb": memory, "diskSizeInGb": 20, "price": price,
+            "transferPerMonthInGb": 1024, "isActive": True, "supportedPlatforms": ["LINUX_UNIX"], **fields}
+
+
+BUNDLES = [bundle("nano_ipv6_3_0", 2, 0.5, 3.5, publicIpv4AddressCount=0), bundle("small_3_0", 2, 2, 12.0),
+           bundle("nano_3_0", 2, 0.5, 5.0, publicIpv4AddressCount=1), bundle("micro_3_0", 2, 1, 7.0)]
+
+
+def create_instance(aws, regions: dict, zone: str, blueprints=("debian_13",), bundle_id="nano_3_0") -> None:
     aws.fail("get_instance", "NotFoundException", instanceName="jp-1")
     aws.ok("get_regions", regions, includeAvailabilityZones=True)
     aws.ok("get_blueprints", {"blueprints": [{"blueprintId": b, "isActive": True} for b in blueprints]})
+    aws.ok("get_bundles", {"bundles": BUNDLES}, includeInactive=False)
     aws.ok("create_instances", instanceNames=["jp-1"], availabilityZone=zone, blueprintId=blueprints[0],
-           bundleId="nano_3_0", keyPairName="jp-1", ipAddressType="dualstack",
+           bundleId=bundle_id, keyPairName="jp-1", ipAddressType="dualstack",
            tags=[{"key": "cnsr", "value": "jp-1"}])
 
 
 def test_ensure_instance_creates_dualstack(aws):
     create_instance(aws, zones("available"), "ap-northeast-1a")
-    assert aws.ls.ensure_instance("jp-1", "jp-1") is True  # created in this call
+    assert aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g") is True  # created in this call
+
+
+def test_ensure_instance_buys_the_cheapest_bundle_of_the_size(aws):
+    create_instance(aws, zones("available"), "ap-northeast-1a", bundle_id="micro_3_0")
+    aws.ls.ensure_instance("jp-1", "jp-1", "1c1g")
+
+
+def test_offers_leave_out_ipv6_only_inactive_and_windows_bundles(aws):
+    others = [bundle("old", 1, 1, 1.0, isActive=False), bundle("win", 2, 2, 2.0, supportedPlatforms=["WINDOWS"]),
+              bundle("v6_ipv6_3_0", 2, 1, 1.0)]
+    aws.ok("get_bundles", {"bundles": BUNDLES + others}, includeInactive=False)
+    found = aws.ls.offers()
+    assert [(offer.size, offer.name) for offer in found] == [("2c2g", "small_3_0"), ("2c0.5g", "nano_3_0"),
+                                                             ("2c1g", "micro_3_0")]
+    assert (found[1].monthly, found[1].ip_monthly, found[1].price_per_tb) == (5, 0, None)
+
+
+def test_pick_without_a_bundle_of_the_size_is_an_error(aws):
+    aws.ok("get_bundles", {"bundles": BUNDLES}, includeInactive=False)
+    with pytest.raises(CnsrError, match="没有 8c32g 规格"):
+        aws.ls.pick("8c32g")
 
 
 @pytest.mark.parametrize("regions,zone", [
@@ -154,12 +185,12 @@ def test_ensure_instance_creates_dualstack(aws):
 ])
 def test_the_zone_is_the_first_available_one_of_the_region(aws, regions, zone):
     create_instance(aws, regions, zone, blueprints=("debian_12",))
-    aws.ls.ensure_instance("jp-1", "jp-1")
+    aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g")
 
 
 def test_ensure_instance_reuses_tagged(aws):
     aws.instance(tags=[{"key": "other", "value": "x"}, {"key": "cnsr", "value": "jp-1"}])
-    assert aws.ls.ensure_instance("jp-1", "jp-1") is False
+    assert aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g") is False
 
 
 @pytest.mark.parametrize("fields", [{}, {"tags": []}, {"tags": [{"key": "cnsr", "value": "jp-2"}]},
@@ -167,7 +198,7 @@ def test_ensure_instance_reuses_tagged(aws):
 def test_ensure_instance_refuses_untagged(aws, fields):
     aws.instance(**fields)
     with pytest.raises(CnsrError, match="同名实例") as caught:
-        aws.ls.ensure_instance("jp-1", "jp-1")
+        aws.ls.ensure_instance("jp-1", "jp-1", "2c0.5g")
     assert "jp-1" in str(caught.value)
 
 
@@ -338,7 +369,7 @@ def test_sdk_errors_become_chinese_messages_without_their_text(raised, fragment)
     def fail(**_):
         raise raised
 
-    ls = Lightsail("jp", client=SimpleNamespace(get_instance=fail))
+    ls = Lightsail("jp-tokyo", client=SimpleNamespace(get_instance=fail))
     with pytest.raises(LightsailError, match=fragment) as caught:
         ls.instance_ipv6("jp-1")
     text = str(caught.value)

@@ -19,7 +19,7 @@ def dropped() -> SshError:
 
 def test_a_step_cut_off_by_a_dropped_connection_runs_again(fake_deps):
     fake_deps.server.fail_once[IDENTITY] = dropped()
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert "与服务器的连接中断了，网络恢复后重跑这一步（部署 Xray）" in fake_deps.terminal.text
     assert fake_deps.server.what().count(IDENTITY) == 2
 
@@ -37,14 +37,14 @@ def test_a_network_that_stays_down_ends_the_run_within_the_wait(fake_deps, monke
     monkeypatch.setattr(fake_deps.server, "connect", down_after_the_drop)
     started = []
     monkeypatch.setattr(steps, "_wait_for_network", _timed(steps._wait_for_network, fake_deps, started))
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert fake_deps.now - started[0] <= steps.NETWORK_WAIT_SECONDS + 10
     assert "已清理干净" in fake_deps.terminal.text
 
 
 def test_a_step_that_fails_again_is_not_run_a_third_time(fake_deps):
     fake_deps.server.fail_on[IDENTITY] = dropped()
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert fake_deps.server.what().count(IDENTITY) == 2
 
 
@@ -60,7 +60,7 @@ def test_a_cloudflare_request_without_an_answer_counts_as_a_drop(fake_deps, monk
         original(ctx)
 
     monkeypatch.setattr(steps, "STEPS", tuple(flaky if s is original else s for s in steps.STEPS))
-    assert run_up(fake_deps, aws="jp") == 0 and len(calls) == 2
+    assert run_up(fake_deps, aws="jp-tokyo") == 0 and len(calls) == 2
 
 
 def test_a_record_save_that_drops_is_retried_without_running_the_step_again(fake_deps, monkeypatch):
@@ -82,14 +82,14 @@ def test_a_record_save_that_drops_is_retried_without_running_the_step_again(fake
         monkeypatch.setattr(ctx, "save", flaky_once)
 
     monkeypatch.setattr(steps, "STEPS", tuple(counted if s is original else s for s in steps.STEPS))
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert len(calls) == 1 and len(saves) >= 2
 
 
 def test_the_first_login_is_not_run_again(fake_deps):
     # step 2 has its own waits and its own diagnosis of an unreachable server
     fake_deps.server.fail_on["true"] = SshError("key")
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert "连接中断" not in fake_deps.terminal.text
 
 

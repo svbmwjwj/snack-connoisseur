@@ -52,8 +52,8 @@ def test_the_version_without_installed_metadata():
 
 
 def test_parse_up_aws():
-    ns = parse_args(["up", "jp-1", "--aws", "jp"])
-    assert (ns.command, ns.alias, ns.aws, ns.ip, ns.static_ip) == ("up", "jp-1", "jp", None, None)
+    ns = parse_args(["up", "jp-1", "--aws", "jp-tokyo"])
+    assert (ns.command, ns.alias, ns.aws, ns.ip, ns.static_ip) == ("up", "jp-1", "jp-tokyo", None, None)
 
 
 def test_parse_up_aws_with_a_static_ip():
@@ -62,7 +62,7 @@ def test_parse_up_aws_with_a_static_ip():
 
 
 @pytest.mark.parametrize("argv", [
-    ["up", "x", "--aws", "jp", "--ip", "192.0.2.1"],
+    ["up", "x", "--aws", "jp-tokyo", "--ip", "192.0.2.1"],
     ["up", "x", "--aws", "eu"],
 ])
 def test_parse_rejects(argv):
@@ -106,9 +106,9 @@ def test_help_flag_after_command(argv, capsys):
 
 
 def test_dispatch_up(commands):
-    assert main(["up", "jp-1", "--aws", "jp"]) == 0
+    assert main(["up", "jp-1", "--aws", "jp-tokyo"]) == 0
     assert list(commands) == ["up"]
-    assert (commands["up"].alias, commands["up"].aws) == ("jp-1", "jp")
+    assert (commands["up"].alias, commands["up"].aws) == ("jp-1", "jp-tokyo")
 
 
 def test_dispatch_rm(commands):
@@ -170,9 +170,9 @@ def test_a_closed_terminal_is_an_interrupt_that_cleans_up(monkeypatch, commands,
 
 
 @pytest.mark.parametrize("argv,expected", [
-    (["up", "x", "--aws", "eu"], "jp、sg、us"),
-    (["up", "x", "--aws", "jp", "--ip", "192.0.2.1"], "不能同时使用"),
-    (["up", "x", "--ip", "192.0.2.1", "--aws", "jp"], "不能同时使用"),
+    (["up", "x", "--aws", "eu"], "jp-tokyo、sg、us-oregon"),
+    (["up", "x", "--aws", "jp-tokyo", "--ip", "192.0.2.1"], "不能同时使用"),
+    (["up", "x", "--ip", "192.0.2.1", "--aws", "jp-tokyo"], "不能同时使用"),
     (["nope"], "未知命令"),
     (["up", "x", "--aws"], "不正确"),
 ])
@@ -183,7 +183,7 @@ def test_usage_errors_are_reported_in_chinese(argv, expected, capsys):
     assert "usage" not in err and "error" not in err and "argument" not in err
 
 
-@pytest.mark.parametrize("argv, word", [(["jp-test", "--aws", "jp"], "jp-test"), (["--aws", "jp"], "jp")])
+@pytest.mark.parametrize("argv, word", [(["jp-test", "--aws", "jp-tokyo"], "jp-test"), (["--aws", "jp-tokyo"], "jp-tokyo")])
 def test_a_forgotten_command_word_is_named_with_the_way_to_write_it(argv, word, capsys):
     assert main(argv) == 2
     err = capsys.readouterr().err
@@ -225,14 +225,14 @@ def _fail(ns):
 ])
 def test_the_log_path_is_the_last_line(command, outcome, code, monkeypatch, commands, capsys, config_home):
     monkeypatch.setattr(sys.modules["cnsr.commands.up"], "run", command)
-    assert main(["up", "jp-1", "--aws", "jp"]) == code
+    assert main(["up", "jp-1", "--aws", "jp-tokyo"]) == code
     captured = capsys.readouterr()
     last = captured.out.splitlines()[-1]
     assert last.startswith("日志：")
     path = Path(last.removeprefix("日志："))
     assert path.is_absolute() and path.is_file() and path.parent == config_home / "logs"
     text = path.read_text(encoding="utf-8")
-    assert "jp-1" in path.name and "['up', 'jp-1', '--aws', 'jp']" in text
+    assert "jp-1" in path.name and "['up', 'jp-1', '--aws', 'jp-tokyo']" in text
     if outcome == "interrupted":
         assert "已中断" in text and captured.err == "已中断。修好问题后重跑同一条命令即可继续。\n"
     else:
@@ -257,7 +257,7 @@ def test_help_and_usage_errors_write_no_log(argv, commands, config_home):
 def test_no_log_line_when_the_log_cannot_be_written(commands, capsys, config_home):
     config_home.mkdir(parents=True)
     (config_home / "logs").write_text("not a directory", encoding="utf-8")
-    assert main(["up", "jp-1", "--aws", "jp"]) == 0
+    assert main(["up", "jp-1", "--aws", "jp-tokyo"]) == 0
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err.startswith("警告：无法写入运行日志（")
@@ -270,7 +270,7 @@ def test_an_unexpected_error_is_reported_and_still_ends_with_the_log_line(monkey
         raise RuntimeError("something odd")
 
     monkeypatch.setattr(sys.modules["cnsr.commands.up"], "run", bug)
-    assert main(["up", "jp-1", "--aws", "jp"]) == 1
+    assert main(["up", "jp-1", "--aws", "jp-tokyo"]) == 1
     captured = capsys.readouterr()
     assert captured.err == "错误：意外错误（RuntimeError：something odd），详情见日志\n"
     last = captured.out.splitlines()[-1]
@@ -285,7 +285,7 @@ def test_ctrl_c_while_the_log_is_being_set_up_returns_130(monkeypatch, commands,
         raise KeyboardInterrupt
 
     monkeypatch.setattr(cnsr.runlog, "started", interrupted_setup)
-    assert main(["up", "jp-1", "--aws", "jp"]) == 130
+    assert main(["up", "jp-1", "--aws", "jp-tokyo"]) == 130
     captured = capsys.readouterr()
     assert captured.err == "已中断。修好问题后重跑同一条命令即可继续。\n"
     assert captured.out == "" and list(commands) == []

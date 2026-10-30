@@ -50,13 +50,14 @@ def test_no_cloudflare_settings_means_no_nodes(fake_deps):
 # --- the listing and the confirmation
 
 
-def test_confirmation_requires_exact_alias(fake_deps):
+def test_the_confirmation_is_one_question_whose_default_cancels(fake_deps):
     deploy_aws(fake_deps)
-    code, out = remove(fake_deps, answers=["jp", "jp-1"])
-    assert code == 0
-    assert fake_deps.terminal.prompts == [CONFIRM_PROMPT, CONFIRM_PROMPT]
-    assert "请原样输入“jp-1”" in out
-    assert fake_deps.node() is None
+    code, out = remove(fake_deps, answers=[""])
+    assert code == 0 and "已取消，没有删除任何东西。" in out
+    assert fake_deps.terminal.seen[0].endswith(f"{CONFIRM_PROMPT}\n1. 删除\n2. 取消\n")
+    assert fake_deps.node() is not None
+    code, _ = remove(fake_deps)
+    assert code == 0 and fake_deps.node() is None
 
 
 def test_noninteractive_deletes_nothing(fake_deps):
@@ -107,7 +108,7 @@ def test_aws_full_removal(fake_deps):
         ("delete_instance", "jp-1"),
     ]
     assert fake_deps.lightsail.instances == {} and fake_deps.lightsail.ips == {}
-    assert fake_deps.calls["make_lightsail"] == [("jp", None)]
+    assert fake_deps.calls["make_lightsail"] == [("jp-tokyo", None)]
     assert fake_deps.dns.records == {}
     assert read_block(fake_deps.deps.ssh_config, "jp-1") is None
     assert fake_deps.node() is None and entry_deleted(fake_deps)

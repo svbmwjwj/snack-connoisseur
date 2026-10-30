@@ -35,7 +35,7 @@ def test_an_unreachable_control_plane_is_not_blamed_on_the_node(fake_deps):
 
 
 def test_ipv6_is_tested_from_this_computer_not_by_the_control_plane(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert AWS_IPV6 not in fake_deps.calls["probe"]
     assert fake_deps.calls["probe_ipv6"] == [AWS_IPV6]
     assert len(fake_deps.dns.of_type("AAAA")) == 1
@@ -43,7 +43,7 @@ def test_ipv6_is_tested_from_this_computer_not_by_the_control_plane(fake_deps):
 
 def test_without_ipv6_on_this_computer_the_aaaa_record_is_kept(fake_deps):
     fake_deps.v6_results = [NO_V6_ROUTE]
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert fake_deps.calls["probe_ipv6"] == [AWS_IPV6]  # no route does not come back by waiting
     assert len(fake_deps.dns.of_type("AAAA")) == 1
     node = fake_deps.node()
@@ -54,12 +54,12 @@ def test_without_ipv6_on_this_computer_the_aaaa_record_is_kept(fake_deps):
 
 
 def test_behind_a_tun_proxy_the_ipv6_result_is_not_trusted(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     fake_deps.deps.fake_ip_dns = lambda: True  # a TUN proxy is on now
     fake_deps.v6_results = [V6_DOWN] * 100
     fake_deps.calls["probe_ipv6"].clear()
 
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
 
     assert fake_deps.calls["probe_ipv6"] == []
     assert len(fake_deps.dns.of_type("AAAA")) == 1 and fake_deps.node().ipv6_probe_failed is False
@@ -68,7 +68,7 @@ def test_behind_a_tun_proxy_the_ipv6_result_is_not_trusted(fake_deps):
 
 def test_a_silent_ipv6_is_retried_then_its_aaaa_record_is_deleted(fake_deps):
     fake_deps.v6_results = [V6_DOWN] * 100
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert len(fake_deps.calls["probe_ipv6"]) == 4  # once, then every 10 seconds for 30 seconds
     assert fake_deps.dns.of_type("AAAA") == []
     node = fake_deps.node()
@@ -78,12 +78,12 @@ def test_a_silent_ipv6_is_retried_then_its_aaaa_record_is_deleted(fake_deps):
 
 def test_a_failed_ipv6_is_not_published_again_by_a_rerun_while_it_fails(fake_deps):
     fake_deps.v6_results = [V6_DOWN] * 100
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert fake_deps.dns.of_type("AAAA") == [] and fake_deps.node().ipv6_probe_failed is True
     fake_deps.dns.requests.clear()
     fake_deps.terminal.clear()
 
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
 
     assert dns_writes(fake_deps) == []  # no AAAA created in step_connect, none deleted after the probe
     assert fake_deps.dns.of_type("AAAA") == [] and fake_deps.node().ipv6_probe_failed is True
@@ -92,12 +92,12 @@ def test_a_failed_ipv6_is_not_published_again_by_a_rerun_while_it_fails(fake_dep
 
 def test_a_failed_ipv6_stays_off_when_this_computer_cannot_test_it(fake_deps):
     fake_deps.v6_results = [V6_DOWN] * 100
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     fake_deps.v6_results = [NO_V6_ROUTE]
     fake_deps.dns.requests.clear()
     fake_deps.terminal.clear()
 
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
 
     assert dns_writes(fake_deps) == []
     node = fake_deps.node()
@@ -108,11 +108,11 @@ def test_a_failed_ipv6_stays_off_when_this_computer_cannot_test_it(fake_deps):
 
 def test_ipv6_is_published_again_once_its_probe_passes(fake_deps):
     fake_deps.v6_results = [V6_DOWN] * 100
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     fake_deps.v6_results = []  # IPv6 works now
     fake_deps.calls["public"].clear()
 
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
 
     (aaaa,) = fake_deps.dns.of_type("AAAA")
     node = fake_deps.node()

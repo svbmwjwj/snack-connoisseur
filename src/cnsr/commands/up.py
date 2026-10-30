@@ -1,36 +1,31 @@
 """``cnsr up``: gather what the deployment needs, run the pipeline, print what to do next.
 
-Questions follow the spec's order: Cloudflare (first run only), alias, source, AWS region and
-credentials or the server's address and login, the features to deploy, then the SSH agent and
-key. Whatever the arguments, the control plane's inventory or ``~/.ssh/config`` already say is
-not asked again.
+Cloudflare is asked first (first run only); the other questions, which a menu's "back" can
+return to, are in ``cnsr.commands.up_questions``.
 """
 
 from __future__ import annotations
 
-import ipaddress
 import re
+import shlex
 from argparse import Namespace
 
-from cnsr import features, localconf, runlog
-from cnsr.aws.lightsail import LOGIN_USER, REGIONS, Lightsail
+from cnsr import features, localconf
 from cnsr.cloudflare.api import CloudflareClient
 from cnsr.cloudflare.control import check_token, ensure_control_plane
 from cnsr.deploy import static_ip
-from cnsr.commands.add_keys import choose_login, pub_file
+from cnsr.commands import size_menu, up_questions
+from cnsr.commands.up_questions import TO_FEATURES, ipv4_error
 from cnsr.commands.rm import remove_node
 from cnsr.commands.token_hint import saved_token_hint
-from cnsr.deploy.context import AddRequest, DeployContext, Deps, default_deps, known_lightsail
+from cnsr.deploy.context import AddRequest, DeployContext, Deps, default_deps
 from cnsr.deploy.steps import run_pipeline
 from cnsr.errors import CnsrError
-from cnsr.naming import validate_alias
 from cnsr.qx import client_lines, v2rayn_url
-from cnsr.ssh.config import HostBlock, read_block
-from cnsr.state import Inventory, Node, SshInfo
+from cnsr.state import Inventory, Node, SshInfo, is_cloud
 
-REGION_LABELS = {"jp": "jp（东京）", "sg": "sg（新加坡）", "us": "us（俄勒冈）"}
-SOURCES = ("vps", "aws")
-SOURCE_LABELS = ["已有服务器（输入 IP）", "在 AWS Lightsail 新开一台"]
+# What the cleanup after a failed first deployment deletes, by cloud: the vendor and its resources.
+CLEANUP_WHAT = {"aws": ("AWS", "实例、静态 IP"), "hetzner": ("Hetzner", "服务器、Primary IP、防火墙")}
 TAG_REGEX_EXAMPLE = "^(self-built|cnsr)$"
 _ZONE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
 
@@ -39,8 +34,9 @@ def run(ns: Namespace, deps: Deps | None = None) -> int:
     """Deploy the server ``ns.alias``, or bring it up to date; 0 on success, 1 after an error.
 
     The error is printed here. Ctrl-C and unexpected errors go up to ``cnsr.cli``, which reports
-    them. In every case, a first AWS deployment that did not finish first deletes what it created.
-    ``ns.features``, when set, are the features to deploy instead of asking (the tests use it).
+    them. In every case, a first cloud deployment that did not finish first deletes what it created.
+    ``ns.features``, when set, are the features to deploy instead of asking (the tests use it);
+    ``ns.to``, when set, names the last of them (``--to``).
     """
     deps = deps or default_deps()
     ctx: DeployContext | None = None
@@ -48,6 +44,7 @@ def run(ns: Namespace, deps: Deps | None = None) -> int:
         with saved_token_hint(deps.conf_path):
             ctx = prepare(ns, deps)
             run_pipeline(ctx)
+            static_ip.hand_over(ctx)
             ctx.node.features = list(ctx.features)
             ctx.save()
             ctx.inventory.keep_indexed(ctx.node.alias)
@@ -59,22 +56,24 @@ def run(ns: Namespace, deps: Deps | None = None) -> int:
         _clean_up(ctx)
         raise
     _print_summary(ctx)
+    static_ip.remind(ctx)
     return 0
 
 
 def _clean_up(ctx: DeployContext | None) -> None:
-    """Delete what a first AWS deployment that stopped part way created, so nothing keeps costing.
+    """Delete what a first cloud deployment that stopped part way created, so nothing keeps costing.
 
     A server a finished run left anything on is in use and stays as it is, and so does a vendor
     server, which is not cnsr's to delete. After the cleanup the next run starts from scratch.
     """
-    if ctx is None or ctx.req.source != "aws" or ctx.in_use:
+    if ctx is None or not is_cloud(ctx.req.source) or ctx.in_use:
         return
     ui, node = ctx.deps.ui, ctx.node
     alias = node.alias
     # rm keeps a reused static IP: it goes back to the instance it was moved from
     moved = (node.static_ip_name, node.static_ip_from) if node.static_ip_reused else (None, None)
-    cleaning = "部署没有完成，删除这次在 AWS 和 Cloudflare 上建的实例、静态 IP、DNS 记录和服务器登记"
+    vendor, resources = CLEANUP_WHAT[ctx.req.source]
+    cleaning = f"部署没有完成，删除这次在 {vendor} 和 Cloudflare 上建的{resources}、DNS 记录和服务器登记"
     ui.busy(cleaning)
     ui.detail(cleaning)
     try:
@@ -90,6 +89,7 @@ def _clean_up(ctx: DeployContext | None) -> None:
     ui.idle()
     if moved[0] and moved[1]:
         static_ip.give_back(ctx, *moved)
+    static_ip.restore(ctx)
     if not left:
         ui.info("已清理干净，不会继续计费。修好问题后重跑同一条命令会重新开一台。")
         return
@@ -102,6 +102,7 @@ def prepare(ns: Namespace, deps: Deps) -> DeployContext:
     """Ask what is missing and build the context the pipeline runs with."""
     ui = deps.ui
     _check_static_ip(ns)
+    _check_size(ns)
     cf, zone = _cloudflare(deps)
     ui.busy("检查 Cloudflare 控制端")
     ui.detail("检查 Cloudflare 控制端：没有就部署，已有就更新到当前版本。")
@@ -111,54 +112,38 @@ def prepare(ns: Namespace, deps: Deps) -> DeployContext:
     finally:
         ui.idle()
     inventory = Inventory(kv)
-    alias = _alias(ns, deps)
-    runlog.alias_known(alias)
-    existing = inventory.get(alias)
-    block = read_block(deps.ssh_config, alias)
-    req = _rerun_request(ns, existing) if existing is not None else _new_request(ns, deps, alias, block)
-    installed = features.installed(existing)
-    chosen = _features(ns, deps, installed)
-    lightsail = _lightsail(deps, req.region) if req.source == "aws" else None
-    agent, key, key_name = choose_login(deps, alias, _key_name_hint(alias, existing, block))
-    pub_file(deps, key, key_name)
+    a = up_questions.answers(ns, deps, inventory)
+    alias, existing, req, chosen, installed = a.alias, a.existing, a.req, a.chosen, a.installed
+    lightsail, hetzner, offer, agent, key, key_name = a.lightsail, a.hetzner, a.offer, a.agent, a.key, a.key_name
     if existing is None:
+        ui.info(f"等价命令（换一个别名即可按同样的配置再开一台）：{_equivalent(req, chosen)}")
         # A device's report right after an earlier rm may have left a rotation state behind,
         # which would send the new node straight into a rotation or a pause.
         inventory.delete_state(alias)
     saved = existing.to_json() if existing is not None else None
-    node = existing or Node(alias=alias, source=req.source, ipv4="", region=req.region)
+    node = existing or Node(alias=alias, source=req.source, ipv4="", region=req.region, size=req.size)
     node.ssh = SshInfo(req.user, req.port, key_name)
     return DeployContext(
         req, deps, node, inventory, cf, zone_id, zone, meta, key, agent, features.app_ports(chosen),
-        features=chosen, in_use=bool(installed), lightsail=lightsail, saved=saved,
+        features=chosen, in_use=bool(installed), lightsail=lightsail, hetzner=hetzner, offer=offer, saved=saved,
         deployed=existing is not None and existing.line is not None,
     )  # fmt: skip
 
 
-def _features(ns: Namespace, deps: Deps, installed: list[str]) -> list[str]:
-    """The features to deploy: ticked in a menu, where those already deployed cannot be unticked.
+def _equivalent(req: AddRequest, chosen: list[str]) -> str:
+    """The ``cnsr up`` command line that deploys a new server the way ``req`` and ``chosen`` say.
 
-    Nothing is asked when every feature is deployed already, nor without a terminal, where
-    every feature is deployed.
+    It holds no token, password or key: those stay where this run read them from. Nor does it
+    hold ``--static-ip``: a static IP serves one node, so another alias would only be refused it.
     """
-    if getattr(ns, "features", None) is not None:
-        chosen = list(ns.features)
-    elif set(installed) == set(features.ALL) or not deps.ui.interactive:
-        chosen = list(features.ALL)
+    words = ["cnsr", "up", req.alias]
+    if is_cloud(req.source):
+        words += [f"--{req.source}", req.region, "--size", req.size]
     else:
-        names = list(features.ALL)
-        ticks = deps.ui.choose_many(
-            "要部署哪些功能？",
-            [features.LABELS[name] for name in names],
-            checked=set(range(len(names))),
-            locked={names.index(name) for name in installed},
-            validate=lambda picked: features.problem([names[index] for index in picked]),
-        )
-        chosen = [names[index] for index in ticks]
-    problem = features.problem(chosen)
-    if problem is not None:
-        raise CnsrError(problem)
-    return [name for name in features.ALL if name in chosen or name in installed]
+        words += ["--ip", req.ip]
+    last = [name for name, feature in TO_FEATURES.items() if feature in chosen][-1]
+    words += ["--to", last]
+    return shlex.join(words)
 
 
 def _cloudflare(deps: Deps) -> tuple[CloudflareClient, str]:
@@ -180,134 +165,28 @@ def _cloudflare(deps: Deps) -> tuple[CloudflareClient, str]:
     return cf, zone
 
 
-def _alias(ns: Namespace, deps: Deps) -> str:
-    if ns.alias is None:
-        return deps.ui.ask("服务器别名（例如 jp-1）", validate=validate_alias)
-    error = validate_alias(ns.alias)
-    if error is not None:
-        raise CnsrError(error)
-    return ns.alias
-
-
 def _check_static_ip(ns: Namespace) -> None:
     if ns.static_ip is None:
         return
     if not ns.aws:
         raise CnsrError("--static-ip 只能和 --aws 一起用：它是你在这个 AWS 区域里已有的静态 IP 的地址。")
-    if _ipv4_error(ns.static_ip) is not None:
+    if ipv4_error(ns.static_ip) is not None:
         raise CnsrError(f"--static-ip 的 {ns.static_ip} 不是 IPv4 地址。")
 
 
-def _rerun_request(ns: Namespace, node: Node) -> AddRequest:
-    """The request for a node the inventory knows; the arguments may only repeat it."""
-    if (
-        (ns.aws and (node.source != "aws" or ns.aws != node.region))
-        or (ns.ip and (node.source != "vps" or ns.ip != node.ipv4))
-        or (ns.static_ip and (not node.static_ip_reused or ns.static_ip != node.ipv4))
-    ):
-        where = f"AWS {node.region}" if node.source == "aws" else f"已有服务器 {node.ipv4}"
-        raise CnsrError(
-            f"服务器 {node.alias} 已存在（{where}），和这次的参数不一致。"
-            f"要部署到别处，请换一个别名，或先运行 cnsr rm {node.alias}。"
-        )
-    default_user = LOGIN_USER if node.source == "aws" else "root"
-    user, port = (node.ssh.user, node.ssh.port) if node.ssh else (default_user, 22)
-    ip = node.ipv4 if node.source == "vps" else None
-    return AddRequest(node.alias, node.source, node.region, ip, user, port, static_ip=ns.static_ip)
-
-
-def _new_request(ns: Namespace, deps: Deps, alias: str, block: HostBlock | None) -> AddRequest:
-    """The request for a node the inventory does not know.
-
-    An alias in ``~/.ssh/config`` that already names a host is used only when it names the
-    server to take over; otherwise it belongs to another machine and the run stops here.
-    """
-    ui = deps.ui
-    source = "aws" if ns.aws else "vps" if ns.ip else SOURCES[ui.choose("服务器来源", SOURCE_LABELS)]
-    named = block.hostname if block is not None else ""
-    if source == "aws":
-        if named:
-            raise _foreign_alias(deps, alias, named, "而这次要在 AWS Lightsail 新开一台实例")
-        codes = list(REGIONS)
-        region = ns.aws or codes[ui.choose("AWS 区域", [REGION_LABELS.get(code, code) for code in codes])]
-        return AddRequest(alias, "aws", region, None, LOGIN_USER, 22, static_ip=ns.static_ip)
-    if ns.ip is not None and (error := _ipv4_error(ns.ip)) is not None:
+def _check_size(ns: Namespace) -> None:
+    if ns.size is None:
+        return
+    if not (ns.aws or ns.hetzner):
+        raise CnsrError("--size 只能和 --aws 或 --hetzner 一起用：它是新开云服务器的规格。")
+    if (error := size_menu.check(ns.size, "hetzner" if ns.hetzner else "aws")) is not None:
         raise CnsrError(error)
-    ip = ns.ip
-    if ip is None and named and _ipv4_error(named) is None:
-        ip = named  # the alias already says which server
-    if named and named != ip:
-        reason = f"不是这次要接管的服务器 {ip}" if ip else "不是 IPv4 地址，无法确认它就是这次要接管的服务器"
-        raise _foreign_alias(deps, alias, named, reason)
-    if block is not None and _logs_in_to(block, ip):
-        return AddRequest(alias, "vps", None, block.hostname, block.user, block.port)
-    ip = ip or ui.ask("服务器的 IPv4 地址", validate=_ipv4_error)
-    user = ui.ask("SSH 登录用户", default="root", validate=_user_error)
-    port = int(ui.ask("SSH 端口", default="22", validate=_port_error))
-    return AddRequest(alias, "vps", None, ip, user, port)
-
-
-def _foreign_alias(deps: Deps, alias: str, hostname: str, reason: str) -> CnsrError:
-    return CnsrError(
-        f"{deps.ssh_config} 里已有 Host {alias}，指向 {hostname}，{reason}。"
-        f"为免改掉另一台机器的别名，已停止：请换一个别名，或先从 {deps.ssh_config} 删除 Host {alias} 那一段再重跑。"
-    )
-
-
-def _logs_in_to(block: HostBlock, ip: str | None) -> bool:
-    """Whether the alias's own SSH config block says how to log in to ``ip`` (to its IPv4 when None)."""
-    if not block.user or _ipv4_error(block.hostname) is not None:
-        return False
-    return ip is None or block.hostname == ip
-
-
-def _lightsail(deps: Deps, region: str) -> Lightsail:
-    """Lightsail for ``region``: boto3's default credentials first, then saved or typed keys.
-
-    Typed keys are saved only after a read-only call shows that they work.
-    """
-    known = known_lightsail(deps, region)
-    if known is not None:
-        return known
-    ui = deps.ui
-    ui.info("没有找到 AWS 凭据（环境变量和 ~/.aws 里都没有）。请输入用于 Lightsail 的 access key，cnsr 会把它保存在本机。")
-    keys = (ui.ask("AWS access key ID", sensitive=True), ui.secret("AWS secret access key"))
-    lightsail = deps.make_lightsail(region, keys)
-    lightsail.pick_blueprint()
-    values = localconf.load(deps.conf_path)
-    localconf.save(deps.conf_path, {**values, "AWS_ACCESS_KEY_ID": keys[0], "AWS_SECRET_ACCESS_KEY": keys[1]})
-    return lightsail
-
-
-def _key_name_hint(alias: str, existing: Node | None, block: HostBlock | None) -> str:
-    """The key name to look for: the inventory's, else the alias's public key file, else the alias."""
-    if existing is not None and existing.ssh is not None:
-        return existing.ssh.key_name
-    if block is not None and block.identity_file.endswith(".pub"):
-        return re.split(r"[\\/]", block.identity_file)[-1].removesuffix(".pub") or alias
-    return alias
 
 
 def _zone_error(value: str) -> str | None:
     if _ZONE.fullmatch(value.rstrip(".").lower()):
         return None
     return "请输入域名本身，例如 example.com，不带 https:// 和路径。"
-
-
-def _ipv4_error(value: str) -> str | None:
-    try:
-        ipaddress.IPv4Address(value)
-    except ValueError:
-        return f"{value} 不是 IPv4 地址，请输入服务器的公网 IPv4 地址。"
-    return None
-
-
-def _user_error(value: str) -> str | None:
-    return None if re.fullmatch(r"[a-z_][a-z0-9_.-]*", value) else "用户名只能包含小写字母、数字、下划线、点和连字符。"
-
-
-def _port_error(value: str) -> str | None:
-    return None if value.isdecimal() and 1 <= int(value) <= 65535 else "端口必须是 1 到 65535 之间的数字。"
 
 
 def _print_summary(ctx: DeployContext) -> None:

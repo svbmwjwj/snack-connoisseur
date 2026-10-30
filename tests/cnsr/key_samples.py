@@ -1,4 +1,4 @@
-"""Test public keys (generated for these tests) and the fingerprints Lightsail shows for them."""
+"""Test public keys (generated for these tests) and the fingerprints Lightsail and Hetzner show for them."""
 
 ED = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIo7AzJ6hUbdKjvRHnfzobGdGutxQzBQvznMqqchhTB+ cnsr-test-ed"
 RSA = (
@@ -6,3 +6,6 @@ RSA = (
 )
 ED_FINGERPRINT = "2IZtFwdxhZ3nbHbghrVzYOP0XY2qpUD7zCslpLZwiRA="
 RSA_FINGERPRINT = "d9:22:47:df:92:50:03:41:66:be:ca:e9:10:1e:f8:f6"
+# Hetzner: ``ssh-keygen -l -E md5`` of the same keys.
+ED_MD5 = "c5:e0:67:6d:f4:0b:71:a2:fd:ea:e0:e2:7b:c0:8b:96"
+RSA_MD5 = "42:eb:6b:5f:e7:ab:a0:84:33:fc:a9:4f:29:12:3e:43"

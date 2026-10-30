@@ -26,7 +26,7 @@ def run_list(fakes) -> tuple[int, str]:
 
 
 def test_list_shows_the_nodes_and_both_subscriptions(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     meta = ControlMeta.from_json(fake_deps.kv()["meta:control"])
     node = fake_deps.node()
     before = len(fake_deps.cloudflare.calls())
@@ -41,7 +41,7 @@ def test_list_shows_the_nodes_and_both_subscriptions(fake_deps):
 
 
 def test_list_marks_a_node_that_is_not_in_the_subscription(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     node = fake_deps.node()
     node.line = None
     fake_deps.store(node)
@@ -65,7 +65,7 @@ def test_list_without_cloudflare_settings_says_there_are_no_nodes(fake_deps):
 
 
 def test_list_names_what_each_server_has(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     hardened = fake_deps.node()
     hardened.alias, hardened.features, hardened.xray, hardened.line = "jp-2", ["harden"], None, None
     fake_deps.store(hardened)
@@ -76,7 +76,7 @@ def test_list_names_what_each_server_has(fake_deps):
 
 
 def test_list_without_an_xray_node_shows_no_subscription(fake_deps):
-    assert run_up(fake_deps, aws="jp", features=["harden"]) == 0
+    assert run_up(fake_deps, aws="jp-tokyo", features=["harden"]) == 0
     meta = ControlMeta.from_json(fake_deps.kv()["meta:control"])
     _, out = run_list(fake_deps)
     assert re.search(r"jp-1 +○ 仅加固 ", out)
@@ -84,7 +84,7 @@ def test_list_without_an_xray_node_shows_no_subscription(fake_deps):
 
 
 def test_list_aligns_the_columns(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     hardened = fake_deps.node()
     hardened.alias, hardened.features, hardened.xray, hardened.line = "jp-22", ["harden"], None, None
     fake_deps.store(hardened)
@@ -99,7 +99,7 @@ def test_list_aligns_the_columns(fake_deps):
 
 
 def test_list_in_a_terminal_colours_the_table_and_never_breaks_an_address(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     meta = ControlMeta.from_json(fake_deps.kv()["meta:control"])
     screen = io.StringIO()
     console = Console(file=screen, force_terminal=True, width=60, color_system="standard")

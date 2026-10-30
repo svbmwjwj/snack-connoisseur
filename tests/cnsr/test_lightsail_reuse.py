@@ -1,11 +1,11 @@
-"""Lightsail: finding a static IP the user already has by its address, and detaching it."""
+"""Lightsail: listing the static IPs, finding one the user already has by its address, and detaching it."""
 
 from __future__ import annotations
 
 import pytest
 
 from cnsr.aws.errors import LightsailError
-from cnsr.aws.static_ips import DETACH_POLL_SECONDS, DETACH_TIMEOUT_SECONDS
+from cnsr.aws.static_ips import DETACH_POLL_SECONDS, DETACH_TIMEOUT_SECONDS, StaticIp
 from cnsr.errors import CnsrError
 
 pytestmark = pytest.mark.usefixtures("no_aws_environment")
@@ -85,3 +85,17 @@ def test_the_detach_wait_counts_the_time_its_calls_take(aws):
     with pytest.raises(CnsrError):
         aws.ls.detach_static_ip("Debian-1-ip")
     assert aws.now <= DETACH_TIMEOUT_SECONDS + 2 * DETACH_POLL_SECONDS
+
+
+def test_static_ips_lists_every_ip_of_the_region_with_where_it_is_attached(aws):
+    aws.ok("get_static_ips", {"staticIps": [
+        {"name": "spare", "ipAddress": "192.0.2.1", "isAttached": False},
+        {"name": "Debian-1-ip", "ipAddress": "192.0.2.10", "isAttached": True, "attachedTo": "Debian-1"},
+    ], "nextPageToken": "p2"})  # fmt: skip
+    unnamed = {"name": "odd-ip", "ipAddress": "192.0.2.11", "isAttached": True}
+    aws.ok("get_static_ips", {"staticIps": [unnamed]}, pageToken="p2")
+    assert aws.ls.static_ips() == [
+        StaticIp("spare", "192.0.2.1", None),
+        StaticIp("Debian-1-ip", "192.0.2.10", "Debian-1"),
+        StaticIp("odd-ip", "192.0.2.11", ""),  # attached to an instance AWS does not name
+    ]

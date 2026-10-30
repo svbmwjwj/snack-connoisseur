@@ -22,7 +22,7 @@ class Aws:
         # The clock waits measure on: sleeps move it on, and each AWS call by ``call_seconds``.
         self.now, self.call_seconds = 0.0, 0.0
         self.client.meta.events.register("before-parameter-build.lightsail", self._call_takes_time)
-        self.ls = Lightsail("jp", client=self.client, sleep=self._sleep, clock=lambda: self.now)
+        self.ls = Lightsail("jp-tokyo", client=self.client, sleep=self._sleep, clock=lambda: self.now)
 
     def _sleep(self, seconds: float) -> None:
         self.sleeps.append(seconds)

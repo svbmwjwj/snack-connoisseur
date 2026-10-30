@@ -18,6 +18,10 @@ STATE_PREFIX = "state:"
 # the free plan allows only 1,000 times a day. It may name a node whose record is gone, never
 # the other way round.
 INDEX_KEY = "index:nodes"
+# Region codes that records written before the "country-area" codes may hold, and their new codes.
+LEGACY_REGIONS = {"jp": "jp-tokyo", "us": "us-oregon"}
+# The sources whose servers cnsr creates, pays for and deletes; "vps" is a server it takes over.
+CLOUD_SOURCES = ("aws", "hetzner")
 
 T = TypeVar("T")
 
@@ -46,10 +50,13 @@ class Node:
     """One proxy node. The control-plane Worker reads ``alias`` and ``line`` from the JSON form."""
 
     alias: str
-    source: Literal["aws", "vps"]
+    source: Literal["aws", "vps", "hetzner"]
     ipv4: str
     ipv6: str | None = None
     region: str | None = None
+    # The size a cloud server was bought as (cnsr up --size); None for a vendor server and for
+    # an AWS node recorded before sizes were (it has the default bundle).
+    size: str | None = None
     instance_name: str | None = None
     static_ip_name: str | None = None
     # The static IP was the user's before (cnsr up --static-ip): cnsr rm detaches it and keeps it.
@@ -77,10 +84,18 @@ class Node:
     def from_json(cls, raw: str) -> Node:
         """Parse a stored record. Unknown keys are ignored; a bad record raises ``ValueError``."""
         data = _object(json.loads(raw))
+        region = data.get("region")
+        if isinstance(region, str) and region in LEGACY_REGIONS:
+            data["region"] = LEGACY_REGIONS[region]
         for key, nested in (("ssh", SshInfo), ("xray", XrayInfo)):
             if data.get(key) is not None:
                 data[key] = _build(nested, data[key])
         return _build(cls, data)
+
+
+def is_cloud(source: str) -> bool:
+    """Whether a node of ``source`` runs on a server cnsr created in a cloud, not one it took over."""
+    return source in CLOUD_SOURCES
 
 
 @dataclass

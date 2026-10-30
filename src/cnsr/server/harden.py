@@ -108,6 +108,7 @@ class Hardener:
         *,
         app_ports: tuple[tuple[int, str], ...],
         on_cut: Callable[[str, int], None] | None = None,
+        on_port: Callable[[int], None] | None = None,
     ) -> tuple[str, int]:
         """Harden the server and return the user and port to log in with from now on.
 
@@ -116,11 +117,16 @@ class Hardener:
 
         ``on_cut(user, port)`` is called as soon as a fresh login after the cut worked, before
         the timer is stopped: from then on only that login is sure to reach the server.
+
+        ``on_port(port)`` is called with the new SSH port once it is picked, before the server
+        is changed at all (a cloud firewall opens it there); when it fails, nothing was changed.
         """
         pubkey = pubkey_line.strip()
         if not pubkey or "\n" in pubkey or "\r" in pubkey:
             raise CnsrError("要装给 admin 的公钥必须是单独的一行。")
         port = pick_ssh_port(self._rng, busy_ports)
+        if on_port is not None:
+            on_port(port)
         admin = self._make_remote(ADMIN, port)
         self._ui.detail(f"开始加固：新建用户 {ADMIN}，SSH 端口改为 {port}。确认新端口能登录之前，22 端口保持开放。")
         try:

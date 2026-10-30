@@ -24,17 +24,17 @@ def recording(fakes) -> RecordingDisplay:
 
 
 def test_the_heading_names_the_source():
-    aws = AddRequest("jp-1", "aws", "jp", None, "admin", 22)
+    aws = AddRequest("jp-1", "aws", "jp-tokyo", None, "admin", 22)
     vps = AddRequest("box", "vps", None, VPS_IP, "root", 22)
-    assert heading(aws) == "cnsr up jp-1 · AWS 东京"
-    assert heading(AddRequest("us-1", "aws", "us", None, "admin", 22)) == "cnsr up us-1 · AWS 俄勒冈"
+    assert heading(aws) == "cnsr up jp-1 · AWS 日本东京"
+    assert heading(AddRequest("us-1", "aws", "us-oregon", None, "admin", 22)) == "cnsr up us-1 · AWS 美国俄勒冈州"
     assert heading(vps) == f"cnsr up box · 已有服务器 {VPS_IP}"
 
 
 def test_a_deployment_shows_stages_not_details(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     screen = fake_deps.terminal.screen
-    assert "cnsr up jp-1 · AWS 东京" in screen
+    assert "cnsr up jp-1 · AWS 日本东京" in screen
     assert "[1/8] 确定服务器地址" in screen and "[7/8] 登记节点并切换 SSH 别名：完成" in screen
     assert "安装 Docker" not in screen and "节点验证了" not in screen
     assert "节点验证了" in fake_deps.terminal.log
@@ -42,7 +42,7 @@ def test_a_deployment_shows_stages_not_details(fake_deps):
 
 def test_preparing_says_what_it_is_doing(fake_deps):
     display = recording(fake_deps)
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     busy = display.calls.index(("busy", "检查 Cloudflare 控制端"))
     assert display.calls[busy + 1] == ("idle",)
     assert busy < next(i for i, call in enumerate(display.calls) if call[0] == "begin")
@@ -52,21 +52,21 @@ def test_preparing_says_what_it_is_doing(fake_deps):
 def test_a_control_plane_check_that_fails_clears_the_busy_line(fake_deps):
     display = recording(fake_deps)
     fake_deps.cloudflare.deny("GET", "/accounts/acct-1/storage/kv/namespaces", 500)
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     busy = display.calls.index(("busy", "检查 Cloudflare 控制端"))
     assert display.calls[busy + 1] == ("idle",)
 
 
 def test_the_scan_reports_its_count(fake_deps):
     display = recording(fake_deps)
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     counts = [call for call in display.calls if call[0] == "count"]
     total = len(scan_targets(AWS_IP))
     assert total == 3070 and counts[-1] == ("count", total, total)
 
 
 def test_the_scan_details_go_to_the_log(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     log, screen = fake_deps.terminal.log, fake_deps.terminal.screen
     assert "198.51.96.0/20" in log and "203.0.113.5" in log  # the range and the direct-check addresses
     assert "site0.example.com（203.0.113.10）" in log  # a candidate sent to the node, with its IP
@@ -116,15 +116,15 @@ def test_a_failed_step_ends_the_display_as_failed(fake_deps, error, outcome):
     fake_deps.server.fail_on["verify-reality.sh"] = error
     if outcome == "interrupted":
         with pytest.raises(KeyboardInterrupt):
-            run_up(fake_deps, aws="jp")
+            run_up(fake_deps, aws="jp-tokyo")
     else:
-        assert run_up(fake_deps, aws="jp") == 1
+        assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert [call for call in display.calls if call[0] == "end"] == [("end", outcome)]
 
 
 def test_cleanup_is_one_busy_line_and_the_result(fake_deps):
     fake_deps.server.preflight = REFUSED
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     lines = fake_deps.terminal.out.getvalue().splitlines()
     failed = next(i for i, line in enumerate(lines) if line.startswith("[2/8] 连接服务器并建解析：失败"))
     assert lines[failed + 1 :] == [CLEANUP_START, CLEANED]
@@ -137,6 +137,6 @@ def test_typed_aws_keys_stay_out_of_the_log(fake_deps):
     fake_deps.aws_chain = False
     key_id, secret = "AKIAEXAMPLE0001", "wJalrXUtnFEMI-example-secret"
     fake_deps.terminal.inputs = [key_id, secret]
-    assert run_up(fake_deps, aws="jp") == 0
-    assert fake_deps.calls["make_lightsail"][0] == ("jp", (key_id, secret))
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
+    assert fake_deps.calls["make_lightsail"][0] == ("jp-tokyo", (key_id, secret))
     assert key_id not in fake_deps.terminal.log and secret not in fake_deps.terminal.log

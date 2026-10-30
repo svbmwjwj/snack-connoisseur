@@ -24,34 +24,34 @@ def nothing_left(fakes) -> bool:
 
 def test_a_refused_takeover_deletes_the_new_instance_and_static_ip(fake_deps):
     fake_deps.server.preflight = REFUSED
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert nothing_left(fake_deps)
     assert "443 端口已被占用" in fake_deps.terminal.text and CLEANED in fake_deps.terminal.text
 
 
 def test_a_late_failure_also_deletes_the_dns_records_and_the_alias(fake_deps):
     fake_deps.server.fail_on["verify-reality.sh"] = CnsrError("握手验证失败")
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert nothing_left(fake_deps) and "握手验证失败" in fake_deps.terminal.text
 
 
 def test_ctrl_c_cleans_up_too(fake_deps):
     fake_deps.server.fail_on["verify-reality.sh"] = KeyboardInterrupt()
     with pytest.raises(KeyboardInterrupt):
-        run_up(fake_deps, aws="jp")
+        run_up(fake_deps, aws="jp-tokyo")
     assert nothing_left(fake_deps) and CLEANED in fake_deps.terminal.text
 
 
 def test_an_unexpected_error_cleans_up_and_goes_on_up(fake_deps):
     fake_deps.server.fail_on["verify-reality.sh"] = RuntimeError("a bug")
     with pytest.raises(RuntimeError, match="a bug"):
-        run_up(fake_deps, aws="jp")
+        run_up(fake_deps, aws="jp-tokyo")
     assert nothing_left(fake_deps) and CLEANED in fake_deps.terminal.text
 
 
 def test_a_static_ip_allocated_but_not_attached_is_released_too(fake_deps):
     fake_deps.lightsail.attach_error = CnsrError("绑定静态 IP 失败：Throttling")
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert ("release_static_ip", "jp-1-ip") in fake_deps.lightsail.calls
     assert nothing_left(fake_deps) and CLEANED in fake_deps.terminal.text
 
@@ -61,36 +61,36 @@ def test_the_instance_is_on_record_before_it_exists(fake_deps, monkeypatch):
     seen = []
     create = fake_deps.lightsail.ensure_instance
 
-    def ensure_instance(name, key_pair):
+    def ensure_instance(name, key_pair, size):
         node = fake_deps.node()
         seen.append(node and node.instance_name)
-        return create(name, key_pair)
+        return create(name, key_pair, size)
 
     monkeypatch.setattr(fake_deps.lightsail, "ensure_instance", ensure_instance)
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert seen == ["jp-1"]
 
 
 def test_the_cleanup_is_reported_after_the_error(fake_deps):
     fake_deps.server.preflight = REFUSED
-    run_up(fake_deps, aws="jp")
+    run_up(fake_deps, aws="jp-tokyo")
     assert fake_deps.terminal.err.getvalue().startswith("错误：")
     assert fake_deps.terminal.out.getvalue().rstrip().endswith(CLEANED + "。修好问题后重跑同一条命令会重新开一台。")
 
 
 def test_a_rerun_after_a_cleanup_starts_from_scratch(fake_deps):
     fake_deps.server.preflight = REFUSED
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     fake_deps.server.preflight = preflight_output(user="admin")
     fake_deps.lightsail.calls.clear()
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     assert ("ensure_instance", "jp-1", "jp-1") in fake_deps.lightsail.calls and fake_deps.node().line
 
 
 def test_what_could_not_be_deleted_is_listed(fake_deps):
     fake_deps.server.preflight = REFUSED
     fake_deps.lightsail.delete_instance_errors = ["删除实例 jp-1 失败：AccessDenied"]
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     text = fake_deps.terminal.text
     assert "删除实例 jp-1 失败：AccessDenied" in text and "cnsr rm jp-1" in text and CLEANED not in text
     assert fake_deps.node().instance_name == "jp-1"  # the record stays for rm to finish
@@ -101,14 +101,14 @@ def test_a_failure_before_the_instance_exists_removes_the_record(fake_deps):
         raise CnsrError("导入钥匙失败")
 
     fake_deps.lightsail.ensure_key_pair = refuse
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert nothing_left(fake_deps) and "导入钥匙失败" in fake_deps.terminal.text
 
 
 def test_a_failed_rerun_of_a_deployed_node_deletes_nothing(fake_deps):
-    assert run_up(fake_deps, aws="jp") == 0
+    assert run_up(fake_deps, aws="jp-tokyo") == 0
     fake_deps.server.fail_on["verify-reality.sh"] = CnsrError("握手验证失败")
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert fake_deps.lightsail.instances == {"jp-1": True} and fake_deps.node().line
     assert "清理" not in fake_deps.terminal.text
 
@@ -130,7 +130,7 @@ def test_a_first_deployment_that_fails_at_the_rotate_service_is_cleaned_up(fake_
         return original(verb)
 
     monkeypatch.setattr(server, "_rotate_service", first_contact)
-    assert run_up(fake_deps, aws="jp") == 1
+    assert run_up(fake_deps, aws="jp-tokyo") == 1
     assert "换 SNI 服务没有在节点上运行起来" in fake_deps.terminal.text and CLEANED in fake_deps.terminal.text
     assert nothing_left(fake_deps)
     assert not any(key.startswith(("node:", "state:")) for key in fake_deps.kv())
