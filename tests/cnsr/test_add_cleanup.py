@@ -87,7 +87,7 @@ def test_a_rerun_after_a_cleanup_starts_from_scratch(fake_deps):
     fake_deps.server.preflight = preflight_output(user="admin")
     fake_deps.lightsail.calls.clear()
     assert run_up(fake_deps, aws="jp-tokyo") == 0
-    assert ("ensure_instance", "jp-1", "jp-1") in fake_deps.lightsail.calls and fake_deps.node().line
+    assert ("ensure_instance", "jp-1", "jp-1-key") in fake_deps.lightsail.calls and fake_deps.node().line
 
 
 def test_what_could_not_be_deleted_is_listed(fake_deps):
@@ -100,7 +100,7 @@ def test_what_could_not_be_deleted_is_listed(fake_deps):
 
 
 def test_a_failure_before_the_instance_exists_removes_the_record(fake_deps):
-    def refuse(name, pub_line):
+    def refuse(name, pub_line, alias=None):
         raise CnsrError("导入钥匙失败")
 
     fake_deps.lightsail.ensure_key_pair = refuse

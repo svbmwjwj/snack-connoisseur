@@ -55,9 +55,9 @@ class FakeLightsail:
     def names(self) -> list[str]:
         return [call[0] for call in self.calls]
 
-    def ensure_key_pair(self, name: str, pub_line: str) -> str:
+    def ensure_key_pair(self, name: str, pub_line: str, alias: str | None = None) -> str:
         self.calls.append(("ensure_key_pair", name, pub_line))
-        return name
+        return f"{name}-key" if name == alias else name
 
     def offers(self) -> list[Offer]:
         self.calls.append(("offers",))

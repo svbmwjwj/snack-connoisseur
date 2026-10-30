@@ -65,6 +65,30 @@ def test_imports_when_missing(aws):
     assert aws.ls.ensure_key_pair("jp-1", ED) == "jp-1"
 
 
+def test_a_key_named_like_the_node_is_imported_with_a_suffix(aws):
+    # Lightsail names are unique across a region: a key pair named like the instance would block it.
+    aws.pairs(("other", "x"))
+    aws.ok("import_key_pair", keyPairName="jp-1-key", publicKeyBase64=ED)
+    assert aws.ls.ensure_key_pair("jp-1", ED, alias="jp-1") == "jp-1-key"
+
+
+def test_a_shared_key_keeps_its_own_name(aws):
+    aws.pairs(("other", "x"))
+    aws.ok("import_key_pair", keyPairName="aws-main", publicKeyBase64=ED)
+    assert aws.ls.ensure_key_pair("aws-main", ED, alias="jp-1") == "aws-main"
+
+
+def test_a_key_already_there_is_reused_whatever_its_name(aws):
+    aws.pairs(("jp-1", ED_FINGERPRINT))
+    assert aws.ls.ensure_key_pair("jp-1", ED, alias="jp-1") == "jp-1"
+
+
+def test_a_different_key_under_the_suffixed_name_is_a_conflict(aws):
+    aws.pairs(("jp-1-key", "aa:bb"))
+    with pytest.raises(KeyConflict, match="jp-1-key"):
+        aws.ls.ensure_key_pair("jp-1", ED, alias="jp-1")
+
+
 def test_the_public_key_is_sent_clean_of_bom_and_newline(aws):
     aws.pairs()
     aws.ok("import_key_pair", keyPairName="jp-1", publicKeyBase64=ED)

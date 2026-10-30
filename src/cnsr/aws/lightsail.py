@@ -58,6 +58,8 @@ LOGIN_USER = "admin"
 
 TAG_KEY = "cnsr"
 DEFAULT_KEY_PAIR = "LightsailDefaultKeyPair"
+# What a key pair named like its node gets after its name, so that the instance can have the name.
+KEY_PAIR_SUFFIX = "-key"
 POLL_SECONDS = 5
 # How many names a new instance tries: the alias, then <alias>-1 and so on.
 NAME_TRIES = 10
@@ -98,8 +100,13 @@ class Lightsail(StaticIps):
 
     # --- key pairs
 
-    def ensure_key_pair(self, name: str, pub_line: str) -> str:
-        """Return the name of the key pair holding ``pub_line``, importing it as ``name`` if none does."""
+    def ensure_key_pair(self, name: str, pub_line: str, alias: str | None = None) -> str:
+        """Return the name of the key pair holding ``pub_line``, importing it if none does.
+
+        It is imported as ``name``, or as ``<name>-key`` when ``name`` is the node's ``alias``:
+        Lightsail names are unique across a region's resources, so a key pair named like the
+        node would block its instance. A key pair already holding the key is used whatever its name.
+        """
         if name == DEFAULT_KEY_PAIR:
             raise CnsrError(f"{DEFAULT_KEY_PAIR} 是 Lightsail 自带的默认钥匙，cnsr 不使用它，请换一个钥匙名称。")
         wanted = _normal(lightsail_fingerprint(pub_line))
@@ -109,6 +116,7 @@ class Lightsail(StaticIps):
             if pair.get("name") != DEFAULT_KEY_PAIR
         ]
         matches = [pair["name"] for pair in pairs if _normal(pair.get("fingerprint")) == wanted]
+        name = f"{name}{KEY_PAIR_SUFFIX}" if name == alias else name
         if name in matches:
             return name
         if matches:

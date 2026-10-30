@@ -56,7 +56,7 @@ def _ensure_instance(ctx: DeployContext) -> None:
             node.static_ip_reused, node.static_ip_from = False, None
             ours = _confirm_free_static_ip(ctx, ip_name, name)
     ctx.deps.ui.detail(f"准备 Lightsail 实例 {name}（区域 {ctx.req.region}，已有就沿用）。")
-    key_pair = lightsail.ensure_key_pair(node.ssh.key_name, ctx.key.line)
+    key_pair = lightsail.ensure_key_pair(node.ssh.key_name, ctx.key.line, node.alias)
 
     def record(chosen: str) -> None:  # on record before it exists, so that rm finds it after a crash
         node.instance_name = chosen
