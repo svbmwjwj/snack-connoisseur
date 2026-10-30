@@ -19,7 +19,7 @@ from cnsr.deploy.context import Deps, default_deps, known_hetzner, known_lightsa
 from cnsr.errors import CnsrError
 from cnsr.hetzner.cloud import Hetzner
 from cnsr.sizes import terabytes
-from cnsr.qx import check_url, snippet_url, v2rayn_url
+from cnsr.qx import check_tasks, snippet_url, v2rayn_url
 from cnsr.state import ControlMeta, Inventory, Node
 
 SOURCES = {"aws": "AWS", "hetzner": "Hetzner", "vps": "自有服务器"}
@@ -82,10 +82,15 @@ def show(deps: Deps, nodes: list[Node], meta: ControlMeta, cloud: Hetzner | Ligh
     if not any(features.XRAY in features.installed(node) for node in nodes):
         return
     ui.info("")
+    indent = " " * cell_len(LABEL)
     ui.styled(_subscription("圈X 订阅", snippet_url(meta)))
-    ui.styled(_subscription("圈X 检测", check_url(meta)))
     ui.styled(_subscription("v2rayN 订阅", v2rayn_url(meta)))
-    ui.styled(Text(f"{' ' * cell_len(LABEL)}v2rayN 设自动更新，不要勾选通过代理更新", style="dim"))
+    ui.styled(Text(f"{indent}v2rayN 设自动更新，不要勾选通过代理更新", style="dim"))
+    ui.info("")
+    ui.styled(Text.assemble(("圈X 检测" + " " * (cell_len(LABEL) - cell_len("圈X 检测")), "bold"), "加到圈X 配置的 [task_local]："))
+    for line in check_tasks(meta):
+        ui.styled(Text(indent + line, style="cyan", no_wrap=True))
+    ui.styled(Text(f"{indent}第一行每分钟自动检测；第二行可选，用于在策略页长按节点手动检测", style="dim"))
 
 
 def _subscription(label: str, url: str) -> Text:

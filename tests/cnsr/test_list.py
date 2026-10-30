@@ -35,7 +35,7 @@ def test_list_shows_the_nodes_and_both_subscriptions(fake_deps):
 
     assert code == 0
     assert "jp-1" in out and node.domain in out and node.ipv4 in out and node.xray.sni in out
-    assert snippet_url(meta) in out and "[task_local]" not in out
+    assert snippet_url(meta) in out and "[server_remote]" not in out
     assert v2rayn_url(meta) in out
     assert {method for method, _ in fake_deps.cloudflare.calls()[before:]} == {"GET"}
 
@@ -112,11 +112,15 @@ def test_list_in_a_terminal_colours_the_table_and_never_breaks_an_address(fake_d
         assert any(line.endswith(url) for line in plain.splitlines())
 
 
-def test_list_shows_the_check_script_of_quantumult_x(fake_deps):
+def test_list_shows_the_quantumult_x_check_tasks_ready_to_paste(fake_deps):
     assert run_up(fake_deps, aws="jp-tokyo") == 0
     meta = ControlMeta.from_json(fake_deps.kv()["meta:control"])
     _, out = run_list(fake_deps)
-    assert "圈X 检测" in out and check_url(meta) in out
+    assert "圈X 检测" in out and "[task_local]" in out
+    assert f"* * * * * {check_url(meta)}, tag=cnsr 节点检测, enabled=true" in out
+    ui_url = check_url(meta).replace("check.js", "check-ui.js")
+    assert f"event-interaction {ui_url}, tag=cnsr 检测, enabled=true" in out
+    assert "长按节点手动检测" in out
 
 
 def test_list_shows_aws_traffic_in_and_out_with_a_note_on_the_shared_allowance(fake_deps):

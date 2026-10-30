@@ -151,7 +151,8 @@ def test_success_shows_the_node_as_cnsr_list_does_without_a_client_guide(fake_de
     row = next(line for line in text.splitlines() if line.strip().startswith("jp-1 "))
     assert "Xray 节点" in row and node.domain in row and node.xray.sni in row
     assert snippet_url(meta) in text and v2rayn_url(meta) in text
-    for guide in ("[server_remote]", "[task_local]", "resource-tag-regex", node.line, "v2rayN 不参与检测"):
+    assert "[task_local]" in text  # the check tasks to paste, as cnsr list shows them
+    for guide in ("[server_remote]", "resource-tag-regex", node.line, "v2rayN 不参与检测"):
         assert guide not in text
     assert node.line.startswith(f"vless={node.domain}:443, ") and node.line.endswith(", tag=jp-1")
     assert XRAY_IMAGE not in fake_deps.terminal.screen  # the remote command lines in the log do name it

@@ -23,6 +23,16 @@ def check_url(meta: ControlMeta) -> str:
     return f"https://{meta.host}/{meta.client_token}/check.js"
 
 
+def check_tasks(meta: ControlMeta) -> list[str]:
+    """The ``[task_local]`` lines of a device's Quantumult X config: the check every minute, then
+    the one a long press on a node runs."""
+    check = check_url(meta)
+    return [
+        f"* * * * * {check}, tag=cnsr 节点检测, enabled=true",
+        f"event-interaction {check.removesuffix('.js')}-ui.js, tag=cnsr 检测, enabled=true",
+    ]
+
+
 def snippet_url(meta: ControlMeta) -> str:
     """The Quantumult X subscription address: the server lines of every node."""
     return f"https://{meta.host}/{meta.client_token}/cnsr.snippet"
