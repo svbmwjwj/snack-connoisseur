@@ -18,7 +18,7 @@ from cnsr.deploy.context import Deps, default_deps, known_hetzner
 from cnsr.errors import CnsrError
 from cnsr.hetzner.cloud import Hetzner
 from cnsr.sizes import terabytes
-from cnsr.qx import client_lines, snippet_url, v2rayn_url
+from cnsr.qx import snippet_url, v2rayn_url
 from cnsr.state import ControlMeta, Inventory, Node
 
 SOURCES = {"aws": "AWS", "hetzner": "Hetzner", "vps": "自有服务器"}
@@ -29,21 +29,17 @@ LABEL = "v2rayN 订阅  "  # the widest subscription label and its gap
 
 
 def run(ns: Namespace, deps: Deps | None = None) -> int:
-    """Print the servers, and both subscriptions when one runs an Xray node; 1 without a control plane.
-
-    With ``ns.qx`` (``cnsr list --qx``) the sections a new device pastes into its Quantumult X
-    config follow.
-    """
+    """Print the servers, and both subscriptions when one runs an Xray node; 1 without a control plane."""
     deps = deps or default_deps()
     try:
         with saved_token_hint(deps.conf_path):
-            return _list(deps, getattr(ns, "qx", False))
+            return _list(deps)
     except CnsrError as exc:
         deps.ui.error(str(exc))
         return 1
 
 
-def _list(deps: Deps, qx: bool) -> int:
+def _list(deps: Deps) -> int:
     ui = deps.ui
     values = localconf.load(deps.conf_path)
     token, zone = values.get("CLOUDFLARE_API_TOKEN"), values.get("CLOUDFLARE_ZONE")
@@ -61,10 +57,6 @@ def _list(deps: Deps, qx: bool) -> int:
         return 0
     ui.styled(Text.assemble(("服务器", "bold"), (f"  {len(nodes)} 台", "dim")))
     show(deps, nodes, meta)
-    if qx:
-        ui.info("")
-        ui.styled(Text("圈X 配置：每台设备粘贴一次；分享节点时，把同样几段发给对方", style="bold"))
-        ui.info(client_lines(meta))
     return 0
 
 

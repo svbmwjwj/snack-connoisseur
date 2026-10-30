@@ -43,7 +43,6 @@ cnsr  部署并加固服务器，可选自建 REALITY 节点（SNI 失效时自�
                         列出所有服务器勾选，可多选；删除前确认一次（直接回车为取消）
   list                  服务器列表，Hetzner 服务器带本月流量；有 Xray 节点时同时列出
                         圈X 订阅和 v2rayN 订阅地址
-      --qx              另外列出新设备要粘贴进圈X 配置的几段（订阅、直连规则和节点检测）
 
 新开服务器时，开始部署前会打印等价命令（不含 --static-ip），换一个别名即可按同样的配置再开一台。
 对已有别名再次运行 up：续跑没完成的步骤、可以补选功能、补充备选 SNI，并更新到当前版本。
@@ -121,7 +120,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(prog="cnsr", add_help=False)
     parser.add_argument("-h", "--help", action=_HelpAction)
     parser.add_argument("--version", action="version", version=f"cnsr {__version__}")
-    parser.set_defaults(alias=None, aws=None, hetzner=None, ip=None, static_ip=None, size=None, to=None, qx=False)
+    parser.set_defaults(alias=None, aws=None, hetzner=None, ip=None, static_ip=None, size=None, to=None)
     commands = parser.add_subparsers(dest="command")
 
     up = commands.add_parser("up", add_help=False)
@@ -141,7 +140,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
     listing = commands.add_parser("list", add_help=False)
     listing.add_argument("-h", "--help", action=_HelpAction)
-    listing.add_argument("--qx", action="store_true")
     return parser
 
 

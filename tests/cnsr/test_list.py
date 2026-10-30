@@ -14,14 +14,14 @@ from deploy_fakes import run_up
 
 from cnsr.commands import listing
 from cnsr.progress import LiveStages
-from cnsr.qx import client_lines, snippet_url, v2rayn_url
+from cnsr.qx import snippet_url, v2rayn_url
 from cnsr.state import ControlMeta
 from cnsr.ui import Ui
 
 
-def run_list(fakes, **flags) -> tuple[int, str]:
+def run_list(fakes) -> tuple[int, str]:
     fakes.terminal.clear()
-    code = listing.run(argparse.Namespace(command="list", alias=None, **flags), fakes.deps)
+    code = listing.run(argparse.Namespace(command="list", alias=None), fakes.deps)
     return code, fakes.terminal.text
 
 
@@ -110,17 +110,3 @@ def test_list_in_a_terminal_colours_the_table_and_never_breaks_an_address(fake_d
     plain = re.sub(r"\x1b\[[0-9;]*m", "", out)
     for url in (snippet_url(meta), v2rayn_url(meta)):
         assert any(line.endswith(url) for line in plain.splitlines())
-
-
-def test_qx_adds_the_quantumult_x_sections_to_paste(fake_deps):
-    assert run_up(fake_deps, aws="jp-tokyo") == 0
-    meta = ControlMeta.from_json(fake_deps.kv()["meta:control"])
-    code, out = run_list(fake_deps, qx=True)
-    assert code == 0 and client_lines(meta) in out
-    assert out.index(v2rayn_url(meta)) < out.index("[server_remote]")
-
-
-def test_qx_is_parsed_and_off_by_default():
-    from cnsr.cli import parse_args
-
-    assert parse_args(["list", "--qx"]).qx is True and parse_args(["list"]).qx is False

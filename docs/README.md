@@ -28,7 +28,7 @@ uv run cnsr
 | `cnsr up <alias> --ip <ip>` | Takes over an existing server and deploys the features you tick |
 | `cnsr up <alias>` | On an existing alias: resumes unfinished steps, adds features you tick now, tops up backup SNIs and updates the server |
 | `cnsr rm [alias]` | Removes the server; on AWS it also deletes the instance and releases the static IP that `cnsr` created; on Hetzner it deletes the server, its Primary IP and its firewall, and keeps the SSH key. Without an alias it lists every server to tick one or more. It shows what will go, then asks once to confirm (Enter cancels) |
-| `cnsr list [--qx]` | Prints the servers and what each one runs, with this month's traffic for Hetzner servers; with an Xray node, also the Quantumult X and v2rayN subscription URLs. `--qx` adds the sections a new device pastes into its Quantumult X config (the subscription, the direct rule and the node check). `cnsr up` ends with the deployed server shown the same way |
+| `cnsr list` | Prints the servers and what each one runs, with this month's traffic for Hetzner servers; with an Xray node, also the Quantumult X and v2rayN subscription URLs. `cnsr up` ends with the deployed server shown the same way |
 
 `cnsr up` asks which features to deploy. Basic hardening is the base; the Xray node is an extension and needs it, so ticking the Xray node ticks the hardening too, and unticking the hardening unticks the Xray node. Ticking only the hardening sets up the server and leaves every other port closed. Without arguments, `up` asks for each setting.
 

@@ -18,27 +18,6 @@ def node_line(domain: str, x: XrayInfo, alias: str) -> str:
     )
 
 
-def client_lines(meta: ControlMeta) -> str:
-    """The sections every device pastes into its Quantumult X config once.
-
-    ``[task_local]`` runs the node check every minute and offers it as a long-press action.
-    """
-    return "\n".join(
-        [
-            "[server_remote]",
-            f"{snippet_url(meta)}, tag=cnsr, update-interval=86400, "
-            "opt-parser=false, enabled=true",
-            "",
-            "[filter_local]",
-            f"host, {meta.host}, direct",
-            "",
-            "[task_local]",
-            f"* * * * * https://{meta.host}/{meta.client_token}/check.js, tag=cnsr 节点检测, enabled=true",
-            f"event-interaction https://{meta.host}/{meta.client_token}/check-ui.js, tag=cnsr 检测, enabled=true",
-        ]
-    )
-
-
 def snippet_url(meta: ControlMeta) -> str:
     """The Quantumult X subscription address: the server lines of every node."""
     return f"https://{meta.host}/{meta.client_token}/cnsr.snippet"
